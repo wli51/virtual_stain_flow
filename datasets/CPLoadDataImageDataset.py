@@ -218,7 +218,7 @@ class CPLoadDataImageDataset(BaseImageDataset):
                 raise ValueError(
                     f"Missing path or filename in loaddata row: {row}"
                 )
-            return Path(str(path)) / str(fname)
+            return str(Path(str(path)) / str(fname))
 
         file_index_dict = {}
         for key in channel_keys:
