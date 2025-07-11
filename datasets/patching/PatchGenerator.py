@@ -1,5 +1,5 @@
 import random
-from typing import Optional, List
+from typing import Optional, List, Tuple, Dict
 
 import numpy as np
 import pandas as pd
@@ -22,6 +22,7 @@ class ImagePatcher:
             obj_metadata: Optional[pd.DataFrame] = None,
             image_shape: tuple[int, int] = (1024, 1024),
             patch_size: int = 256,
+            # TODO modify this class to accept rngs intead of random_seed
             random_seed: Optional[int] = None
         ):
         """
@@ -206,3 +207,88 @@ class ImagePatcher:
         :return: List of pd.DataFrame, one for each patch
         """
         return self._cur_obj_metadata
+    
+class PatchGenerator:
+    """
+    A simple wrapper class for pre-configuring and running patch generation methods.
+    Allows for more flexible and reusable patch generation pipelines as a sequence 
+        of steps, each step being a method of ImagePatcher with its own parameters.
+    """
+
+    def __init__(
+            self, 
+            steps: List[Tuple[str, Dict]], 
+            patch_size: int, 
+            seed: Optional[int] = None
+        ):
+        """
+        PatchGenerator is a configurable patch generation pipeline.
+
+        :param steps: List of (method_name, kwargs) tuples, e.g.
+                      [("cell_containing_patches", {...}), ("random_patches", {...})]
+                      See ImagePatcher methods for available methods and their parameters.
+        :param patch_size: int, size of the square patches to generate
+        :param seed: optional random seed for reproducibility
+        """        
+
+        # type check for steps
+        if not isinstance(steps, list):
+            raise TypeError("steps must be a list of tuples (method_name, kwargs)")
+        for step in steps:
+            
+            if not isinstance(step, tuple):
+                raise TypeError(f"Expected each step to be a tuple (method_name, kwargs), got {type(step)}")
+            if len(step) != 2:
+                raise ValueError(f"Each step must be a tuple of length 2, got {len(step)}")
+            
+            method_name, kwargs = step
+            
+            if not isinstance(method_name, str):
+                raise TypeError(f"Expected method_name to be a string, got {type(method_name)}")
+            if not hasattr(ImagePatcher, method_name):
+                raise AttributeError(f"ImagePatcher has no method '{method_name}'"
+                                     "Available methods: random_patches, cell_containing_patches")
+            if not isinstance(kwargs, dict):
+                raise TypeError(f"Expected kwargs to be a dictionary, got {type(kwargs)}")
+            # kwargs check at runtime            
+
+        self.steps = steps
+
+        # TODO move type checks from ImagePatcher to here?
+        self.patch_size = patch_size
+        self.seed = seed
+
+        # TODO pass these into ImagePatcher
+        self.__rng = random.Random(seed),
+        self.__np_rng = np.random.default_rng(seed)
+
+    def __call__(
+            self, 
+            image_shape: Tuple[int, int], 
+            obj_coordinates: pd.DataFrame,
+            obj_metadata: Optional[pd.DataFrame] = None
+        ):
+        """
+        Generate a PatchCollection by applying the configured steps.
+
+        :param image_shape: (height, width) tuple
+        :param obj_coordinates: DataFrame with at least two columns (x, y)
+        :return: PatchCollection
+        """
+
+        backend = ImagePatcher(
+            obj_coordinates = obj_coordinates,
+            obj_metadata = obj_metadata, 
+            image_shape = image_shape,
+            patch_size=self.patch_size,
+            # TODO modify ImagePatcher to accept rngs intead of random_seed
+            random_seed = self.seed,
+        )
+        try:
+            for method_name, kwargs in self.steps:
+                method = getattr(backend, method_name)
+                method(**kwargs)
+        except Exception as e:
+            raise RuntimeError(f"Error running method {method_name} during patch generation: {e}")
+        
+        return backend.patch_collection, backend.curated_object_metadata
