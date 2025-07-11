@@ -6,9 +6,10 @@ import pandas as pd
 
 from .PatchCollection import PatchCollection
 
-class PatchGenerator:
+class ImagePatcher:
     """
-    Helper class for generating patches from an image based on object coordinates. 
+    Helper class for generating patches from an single image based on optional 
+        object coordinate metadata. 
     Two supported methods for patch generation include:
         1. Randomly sampling patches from the image.
         2. Sampling patches centered on randomly selected object coordinates with optional jitter.
