@@ -25,6 +25,7 @@ class AbstractTrainer(ABC):
         metrics: Dict[str, AbstractMetrics] = None,
         device: Optional[torch.device] = None,
         early_termination_metric: str = None,
+        scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
         **kwargs,
     ):
         """
@@ -47,6 +48,8 @@ class AbstractTrainer(ABC):
             termination count on the validation dataset. If None, early termination is disabled and the
             training will run for the specified number of epochs.
         :type early_termination_metric: str
+        :param scheduler: (optional) Learning rate scheduler to be used for training.
+        :type scheduler: torch.optim.lr_scheduler._LRScheduler
         """
 
         self._batch_size = batch_size
@@ -70,6 +73,7 @@ class AbstractTrainer(ABC):
         self._train_ratio = kwargs.get("train", 0.7)
         self._val_ratio = kwargs.get("val", 0.15)
         self._test_ratio = kwargs.get("test", 1.0 - self._train_ratio - self._val_ratio)
+        self._datasplit_seed = kwargs.get("datasplit_seed", 42)
 
         if not (0 < self._train_ratio + self._val_ratio + self._test_ratio <= 1.0):
             raise ValueError("Data split ratios must sum to 1.0 or less.")
@@ -78,7 +82,8 @@ class AbstractTrainer(ABC):
         val_size = int(self._val_ratio * len(dataset))
         test_size = len(dataset) - train_size - val_size
         self._train_dataset, self._val_dataset, self._test_dataset = random_split(
-            dataset, [train_size, val_size, test_size]
+            dataset, [train_size, val_size, test_size],
+            generator=torch.Generator().manual_seed(self._datasplit_seed)
         )
 
         # Create DataLoaders
@@ -88,6 +93,10 @@ class AbstractTrainer(ABC):
         self._val_loader = DataLoader(
             self._val_dataset, batch_size=self._batch_size, shuffle=False
         )
+
+        self._scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None
+        if scheduler is not None:
+            self._scheduler = scheduler
 
         # Epoch counter
         self._epoch = 0
@@ -229,6 +238,9 @@ class AbstractTrainer(ABC):
             if self._early_termination and self.early_stop_counter >= self.patience:
                 print(f"Early termination at epoch {epoch + 1} with best validation metric {self._best_loss}")
                 break
+
+            if self._scheduler is not None:
+                self._scheduler.step()
 
         for callback in self.callbacks:
             callback.on_train_end()
