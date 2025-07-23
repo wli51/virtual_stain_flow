@@ -13,16 +13,19 @@ class MlflowLogger(AbstractCallback):
     Callback to log metrics to MLflow.
     """
 
-    def __init__(self, 
-                
-                 name: str,
-                 artifact_name: str = 'best_model_weights.pth',
-                 mlflow_uri: Union[pathlib.Path, str] = None,
-                 mlflow_experiment_name: Optional[str] = None,
-                 mlflow_start_run_args: dict = None,
-                 mlflow_log_params_args: dict = None,
-
-                 ):
+    def __init__(
+            self, 
+            name: str,
+            artifact_name: str = 'best_model_weights.pth',
+            mlflow_uri: Union[pathlib.Path, str] = None,
+            mlflow_experiment_name: Optional[str] = None,
+            mlflow_start_run_args: dict = None,
+            mlflow_log_params_args: dict = None,
+            mlflow_tags: dict = None,
+            _log_best_model: bool = True,
+            _log_epoch_model: bool = True,
+            _temp_dir: Optional[str] = None
+        ):
         """
         Initialize the MlflowLogger callback.
 
@@ -42,6 +45,8 @@ class MlflowLogger(AbstractCallback):
         :type mlflow_start_run_args: dict, optional
         :param mlflow_log_params_args: Additional arguments for logging parameters to MLflow, defaults to None.
         :type mlflow_log_params_args: dict, optional
+        :param mlflow_tags: Tags to log with the MLflow run, defaults to None.
+        :type mlflow_tags: dict, optional
         """
         super().__init__(name)
 
@@ -60,6 +65,10 @@ class MlflowLogger(AbstractCallback):
         self._artifact_name = artifact_name
         self._mlflow_start_run_args = mlflow_start_run_args
         self._mlflow_log_params_args = mlflow_log_params_args
+        self._mlflow_tags = mlflow_tags
+        self._log_best_model = _log_best_model
+        self._log_epoch_model = _log_epoch_model
+        self._temp_dir = _temp_dir
 
     def on_train_start(self):
         """
@@ -85,6 +94,12 @@ class MlflowLogger(AbstractCallback):
             )
         else:
             raise TypeError("mlflow_log_params_args must be None or a dictionary.")
+        
+        if self._mlflow_tags is not None:
+            if not isinstance(self._mlflow_tags, dict):
+                raise TypeError("mlflow_tags must be a dictionary.")
+            for key, value in self._mlflow_tags.items():
+                mlflow.set_tag(key, value)
 
     def on_epoch_end(self):
         """
@@ -99,6 +114,8 @@ class MlflowLogger(AbstractCallback):
                 value = None
             mlflow.log_metric(key, value, step=self.trainer.epoch)
 
+        self.__log_model_artifacts()
+
     def on_train_end(self):
         """
         Called at the end of training.
@@ -106,10 +123,36 @@ class MlflowLogger(AbstractCallback):
         Saves trainer best model to a temporary directory and calls mlflow log artifact
         Then ends run
         """
-        # Save weights to a temporary directory and log artifacts
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            weights_path = os.path.join(tmpdirname, self._artifact_name)
-            torch.save(self.trainer.best_model, weights_path)
-            mlflow.log_artifact(weights_path, artifact_path="models")
 
-        mlflow.end_run()        
+        self.__log_model_artifacts()
+        # # Save best model weights to a temporary directory and log artifacts
+        # with tempfile.TemporaryDirectory(dir=self._temp_dir) as tmpdirname:
+        #     weights_path = os.path.join(tmpdirname, self._artifact_name)
+        #     torch.save(self.trainer.best_model, weights_path)
+        #     mlflow.log_artifact(weights_path, artifact_path="models")
+
+        # # also save the highest epoch model weights
+        # with tempfile.TemporaryDirectory(dir=self._temp_dir) as tmpdirname:
+        #     weights_path = os.path.join(tmpdirname, f'weights_{self.trainer.epoch}.pth')
+        #     torch.save(self.trainer.model.state_dict(), weights_path)
+        #     mlflow.log_artifact(weights_path, artifact_path="models")
+
+        mlflow.end_run()
+        
+    def __log_model_artifacts(self):
+        """
+        Helper method for logging model artifacts to MLflow.
+        """
+
+        if self._log_best_model:
+            with tempfile.TemporaryDirectory(dir=self._temp_dir) as tmpdirname:
+                weights_path = os.path.join(tmpdirname, self._artifact_name)
+                torch.save(self.trainer.best_model, weights_path)
+                mlflow.log_artifact(weights_path, artifact_path="models")
+
+        if self._log_epoch_model:
+            # also save the highest epoch model weights
+            with tempfile.TemporaryDirectory(dir=self._temp_dir) as tmpdirname:
+                weights_path = os.path.join(tmpdirname, f'weights_{self.trainer.epoch}.pth')
+                torch.save(self.trainer.model.state_dict(), weights_path)
+                mlflow.log_artifact(weights_path, artifact_path="models")
