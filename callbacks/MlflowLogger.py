@@ -16,13 +16,13 @@ class MlflowLogger(AbstractCallback):
     def __init__(
             self, 
             name: str,
-            artifact_name: str = 'best_model_weights.pth',
             mlflow_uri: Union[pathlib.Path, str] = None,
             mlflow_experiment_name: Optional[str] = None,
             mlflow_start_run_args: dict = None,
             mlflow_log_params_args: dict = None,
             mlflow_tags: dict = None,
             _log_best_model: bool = True,
+            _best_model_artifact_name: str = 'weights_best.pth',
             _log_epoch_model: bool = True,
             _temp_dir: Optional[str] = None
         ):
@@ -30,7 +30,6 @@ class MlflowLogger(AbstractCallback):
         Initialize the MlflowLogger callback.
 
         :param name: Name of the callback.
-        :param artifact_name: Name of the artifact file to log, defaults to 'best_model_weights.pth'.
         :param mlflow_uri: URI for the MLflow tracking server, defaults to None.
         If a path is specified, the logger class will call set_tracking_uri to that supplied path 
         thereby initiating a new tracking server. 
@@ -45,6 +44,15 @@ class MlflowLogger(AbstractCallback):
         :type mlflow_start_run_args: dict, optional
         :param mlflow_log_params_args: Additional arguments for logging parameters to MLflow, defaults to None.
         :type mlflow_log_params_args: dict, optional
+        :param _log_best_model: Whether to log the best model, defaults to True.
+        :type _log_best_model: bool, optional
+        :param _best_model_artifact_name: Name of the artifact for the best model, defaults to 'weights_best.pth'.
+        :type _best_model_artifact_name: str, optional
+        :param _log_epoch_model: Whether to log the model at the end of each epoch, defaults to True.
+        :type _log_epoch_model: bool, optional
+        :param _temp_dir: Temporary directory for saving model artifacts, defaults to None.
+        If None, a temporary directory will be created using tempfile.TemporaryDirectory.
+        :type _temp_dir: str, optional
         :param mlflow_tags: Tags to log with the MLflow run, defaults to None.
         :type mlflow_tags: dict, optional
         """
@@ -62,11 +70,11 @@ class MlflowLogger(AbstractCallback):
             except Exception as e:
                 raise RuntimeError(f"Error setting MLflow experiment: {e}")
 
-        self._artifact_name = artifact_name
         self._mlflow_start_run_args = mlflow_start_run_args
         self._mlflow_log_params_args = mlflow_log_params_args
         self._mlflow_tags = mlflow_tags
         self._log_best_model = _log_best_model
+        self._best_artifact_name = _best_model_artifact_name
         self._log_epoch_model = _log_epoch_model
         self._temp_dir = _temp_dir
 
@@ -146,7 +154,7 @@ class MlflowLogger(AbstractCallback):
 
         if self._log_best_model:
             with tempfile.TemporaryDirectory(dir=self._temp_dir) as tmpdirname:
-                weights_path = os.path.join(tmpdirname, self._artifact_name)
+                weights_path = os.path.join(tmpdirname, self._best_artifact_name)
                 torch.save(self.trainer.best_model, weights_path)
                 mlflow.log_artifact(weights_path, artifact_path="models")
 
