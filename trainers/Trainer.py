@@ -15,6 +15,7 @@ class Trainer(AbstractTrainer):
             model: torch.nn.Module,
             optimizer: torch.optim.Optimizer,
             backprop_loss: Union[torch.nn.Module, List[torch.nn.Module]],
+            backprop_loss_weights: Optional[List[float]] = None,
             **kwargs                    
     ):
         """
@@ -34,6 +35,25 @@ class Trainer(AbstractTrainer):
         self._optimizer = optimizer
         self._backprop_loss = backprop_loss \
             if isinstance(backprop_loss, list) else [backprop_loss]
+        
+        if backprop_loss_weights is None:
+            # If no weights are provided, use equal weights for all losses
+            self._backprop_loss_weights = [1.0] * len(self._backprop_loss)
+        elif isinstance(backprop_loss_weights, (int, float)):
+            # If a single weight is provided, use it for all losses
+            self._backprop_loss_weights = [backprop_loss_weights] * len(self._backprop_loss)
+        elif isinstance(backprop_loss_weights, list):
+            if len(backprop_loss_weights) == len(self._backprop_loss):
+                # If a list of weights is provided, use it as is
+                self._backprop_loss_weights = backprop_loss_weights
+            else:
+                raise ValueError(
+                    "Length of backprop_loss_weights must match the number of loss functions."
+                )
+        else:
+            raise TypeError(
+                "backprop_loss_weights must be a float, int, or list of floats."
+            )
 
     """
     Overidden methods from the parent abstract class
@@ -61,9 +81,12 @@ class Trainer(AbstractTrainer):
         # Back propagate the loss
         losses = {}
         total_loss = torch.tensor(0.0, device=self.device)
-        for loss in self._backprop_loss:
+        for loss, weight in zip(
+            self._backprop_loss, 
+            self._backprop_loss_weights):
+
             losses[type(loss).__name__] = loss(outputs, targets)
-            total_loss += losses[type(loss).__name__]
+            total_loss += losses[type(loss).__name__] * weight
 
         total_loss.backward()
         self.optimizer.step()
