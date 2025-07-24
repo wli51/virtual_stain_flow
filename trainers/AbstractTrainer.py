@@ -19,7 +19,7 @@ class AbstractTrainer(ABC):
         self,
         dataset: torch.utils.data.Dataset,
         batch_size: int = 16,
-        epochs: int = 10,
+        train_for_epochs: int = 10,
         patience: int = 5,
         callbacks: List[AbstractCallback] = None,
         metrics: Dict[str, AbstractMetrics] = None,
@@ -33,8 +33,8 @@ class AbstractTrainer(ABC):
         :type dataset: torch.utils.data.Dataset
         :param batch_size: The batch size for training.
         :type batch_size: int
-        :param epochs: The number of epochs for training.
-        :type epochs: int
+        :param train_for_epochs: The number of epochs for training.
+        :type train_for_epochs: int
         :param patience: The number of epochs with no improvement after which training will be stopped.
         :type patience: int
         :param callbacks: List of callback functions to be executed
@@ -53,7 +53,8 @@ class AbstractTrainer(ABC):
         """
 
         self._batch_size = batch_size
-        self._epochs = epochs
+        self._starting_epoch = 0
+        self._train_for_epochs = train_for_epochs
         self._patience = patience
         self.initialize_callbacks(callbacks)
         self._metrics = metrics if metrics else {}
@@ -185,10 +186,13 @@ class AbstractTrainer(ABC):
         for callback in self.callbacks:
             callback.on_train_start()
 
-        for epoch in range(self.epochs):
+        for epoch in range(
+            self.starting_epoch, 
+            self._train_for_epochs + self.starting_epoch            
+        ):
 
             # Increment the epoch counter
-            self.epoch += 1
+            self.epoch = epoch
 
             # callbacks
             for callback in self.callbacks:
@@ -296,7 +300,10 @@ class AbstractTrainer(ABC):
         Returns the training and validation losses and metrics.
         """
         log ={
-            **{'epoch': list(range(1, self.epoch + 1))},
+            **{'epoch': list(range(
+                self.starting_epoch + 1, 
+                self._train_for_epochs + self.starting_epoch + 1
+            ))},
             **self._train_losses,
             **{f'val_{key}': val for key, val in self._val_losses.items()},
             **self._train_metrics,
@@ -338,7 +345,11 @@ class AbstractTrainer(ABC):
     
     @property
     def epochs(self):
-        return self._epochs
+        return self._epoch
+    
+    @property
+    def starting_epoch(self):
+        return self._starting_epoch
     
     @property
     def patience(self):
@@ -404,6 +415,17 @@ class AbstractTrainer(ABC):
     @epoch.setter
     def epoch(self, value: int):
         self._epoch = value
+
+    @starting_epoch.setter
+    def starting_epoch(self, value: int):
+        """
+        Set the starting epoch for training.
+        This is useful when resuming training from a checkpoint.
+        
+        :param value: The epoch number to start training from.
+        :type value: int
+        """
+        self._starting_epoch = value
 
     """
     Update loss and metrics

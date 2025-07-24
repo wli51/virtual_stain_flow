@@ -16,13 +16,14 @@ class MlflowLogger(AbstractCallback):
     def __init__(
             self, 
             name: str,
+            run_id: Optional[str] = None,
             mlflow_uri: Union[pathlib.Path, str] = None,
             mlflow_experiment_name: Optional[str] = None,
             mlflow_start_run_args: dict = None,
             mlflow_log_params_args: dict = None,
             mlflow_tags: dict = None,
             _log_best_model: bool = True,
-            _best_model_artifact_name: str = 'weights_best.pth',
+            _best_model_artifact_name: str = 'best_model_weights.pth',
             _log_epoch_model: bool = True,
             _temp_dir: Optional[str] = None
         ):
@@ -30,6 +31,9 @@ class MlflowLogger(AbstractCallback):
         Initialize the MlflowLogger callback.
 
         :param name: Name of the callback.
+        :type name: str
+        :param run_id: Optional run ID to continue an existing MLflow run, defaults to None
+        for starting a new run.
         :param mlflow_uri: URI for the MLflow tracking server, defaults to None.
         If a path is specified, the logger class will call set_tracking_uri to that supplied path 
         thereby initiating a new tracking server. 
@@ -46,7 +50,7 @@ class MlflowLogger(AbstractCallback):
         :type mlflow_log_params_args: dict, optional
         :param _log_best_model: Whether to log the best model, defaults to True.
         :type _log_best_model: bool, optional
-        :param _best_model_artifact_name: Name of the artifact for the best model, defaults to 'weights_best.pth'.
+        :param _best_model_artifact_name: Name of the artifact for the best model, defaults to 'best_model_weights.pth'.
         :type _best_model_artifact_name: str, optional
         :param _log_epoch_model: Whether to log the model at the end of each epoch, defaults to True.
         :type _log_epoch_model: bool, optional
@@ -69,6 +73,8 @@ class MlflowLogger(AbstractCallback):
                 mlflow.set_experiment(mlflow_experiment_name)
             except Exception as e:
                 raise RuntimeError(f"Error setting MLflow experiment: {e}")
+            
+        self._run_id = run_id
 
         self._mlflow_start_run_args = mlflow_start_run_args
         self._mlflow_log_params_args = mlflow_log_params_args
@@ -84,15 +90,20 @@ class MlflowLogger(AbstractCallback):
 
         Calls mlflow start run and logs params if provided
         """
-
+                
         if self._mlflow_start_run_args is None:
-            pass
-        elif isinstance(self._mlflow_start_run_args, Dict):
-            mlflow.start_run(
-                **self._mlflow_start_run_args
-            )
-        else:
+            self._mlflow_start_run_args = {}
+        elif not isinstance(self._mlflow_start_run_args, Dict):
             raise TypeError("mlflow_start_run_args must be None or a dictionary.")
+        
+        if self._run_id is not None:
+            self._mlflow_start_run_args['run_id'] = self._run_id
+        try:
+            mlflow.start_run(**self._mlflow_start_run_args)
+        except Exception as e:
+            raise RuntimeError(f"Error starting MLflow run: {e}")
+        
+        self._run_id = mlflow.active_run().info.run_id
         
         if self._mlflow_log_params_args is None:
             pass
@@ -164,3 +175,50 @@ class MlflowLogger(AbstractCallback):
                 weights_path = os.path.join(tmpdirname, f'weights_{self.trainer.epoch}.pth')
                 torch.save(self.trainer.model.state_dict(), weights_path)
                 mlflow.log_artifact(weights_path, artifact_path="models")
+
+def query_mlflow_run_info(
+    tracking_uri: str,
+    run_id: str,
+    epoch_model_prefix = 'weights_',
+    best_model = 'best_model_weights.pth',
+    _model_artifact_path = 'models'
+) -> dict:
+    """
+    Retrieve run metadata and model artifact path from an MLflow run.
+
+    :param tracking_uri: URI of the MLflow tracking server.
+    :param run_id: ID of the MLflow run.
+    :param epoch_model_prefix: Prefix for the epoch model artifact filename, defaults to 'weights_'.
+    :param best_model: Name of the best model artifact, defaults to 'best_model_weights.pth'.
+    :return: Dictionary containing artifact path, last epoch, metrics, etc.
+    """
+    mlflow.set_tracking_uri(tracking_uri)
+    client = mlflow.tracking.MlflowClient()
+
+    run = client.get_run(run_id)
+    artifacts = client.list_artifacts(run_id, path=_model_artifact_path)
+    artifact_dir = client.download_artifacts(run_id, '')
+
+    best_artifact_path = None
+    epoch_artifact_path = None
+    for artifact in artifacts:
+        if best_model in artifact.path:
+            best_artifact_path = os.path.join(artifact_dir, artifact.path)
+        if epoch_model_prefix in artifact.path:
+            epoch_artifact_path = os.path.join(artifact_dir, artifact.path)
+
+    # Extract last epoch (optional; depends on logging setup)
+    last_epoch = int(run.data.metrics.get("epoch", -1))
+
+    return {
+        "run_id": run_id,
+        "run_name": run.info.run_name,
+        "artifact_uri": run.info.artifact_uri,
+        "best_model_artifact_path": best_artifact_path,
+        "epoch_model_artifact_path": epoch_artifact_path,
+        "last_epoch": last_epoch,
+        "status": run.info.status,
+        "tags": run.data.tags,
+        "params": run.data.params,
+        "metrics": run.data.metrics,
+    }
