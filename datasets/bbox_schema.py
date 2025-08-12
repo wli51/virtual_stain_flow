@@ -6,8 +6,11 @@ extend the BaseImageDataset class .metadata DataFrame attribute as
 a structured representation of bounding box annotations.
 """
 
+from __future__ import annotations
+import json
+import os
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -19,6 +22,7 @@ Everything derives from a prefix, so you never spread strings around.
 @dataclass(frozen=True)
 class BBoxSchema:
     
+    version: str = '0.1'
     prefix: str = "_patch_bbox_" # TODO tentative prefix
 
     # Base column keys
@@ -84,6 +88,19 @@ class BBoxSchema:
     @property
     def all_cols(self) -> Tuple[str, ...]:
         return tuple(self.col(k) for k in self._keys)
+    
+    # ---------- serialization ----------
+    def to_dict(self) -> dict:
+        return {"prefix": self.prefix}
+    
+    @classmethod
+    def from_dict(cls, d: dict) -> "BBoxSchema":
+        # tolerate extra fields; require prefix; default version
+        prefix = d.get("prefix")
+        if not isinstance(prefix, str) or not prefix:
+            raise ValueError("BBoxSchema.from_dict: 'prefix' must be a non-empty string.")
+        return cls(prefix=prefix)
+    
 """
 Wraps a pandas Series (row) and a BBoxSchema to provide clean attribute access
 when iterating over rows.
