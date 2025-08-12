@@ -1,6 +1,8 @@
 """
 datasets/dataset_view.py
 
+Core Dataset Infrastructure for dynamically loading image from files in
+a lazy-loading fashion.
 
 """
 from __future__ import annotations
@@ -12,7 +14,6 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 from PIL import Image
-
 
 """
 Minimal view defining the immutable component of a dataset.
@@ -88,8 +89,11 @@ class DatasetView:
         return arr
 
 """
-Minimal tracker for index state with defined update signature.
+Minimal tracker for index state to associate with a DatasetView.
 More orderly than just maintaining dataset_class._index.
+Intended to be utilized by dataset classes as internal memory
+for last loaded image index to allow for retrieval of relevant
+metadata.
 """
 @dataclass
 class IndexState:
@@ -106,10 +110,10 @@ class IndexState:
             self.last = idx
 
 """
-Lazy state tracker to associate with a DatasetView.
+Lazy file state tracker to associate with a DatasetView.
 This tracks the current input/target image np arrays and paths and 
 determines when to invoke the DatasetView to read images in a lazy manner, 
-minimizing redundant reads. Also centralizes caching logic.
+minimizing redundant reads. Also centralizes the optional LRU caching logic.
 """
 @dataclass
 class FileState:
@@ -143,17 +147,24 @@ class FileState:
 
     # ---- internal cache helpers ----
     def _touch_cache(self, path: Path, arr: np.ndarray) -> None:
-        # unbounded cache
+        
+        # unbounded cache, since we never evict cached item
+        # and the View defining all image files constituting
+        # the dataset is immutable, eventually all images
+        # will be cached and memory usage will persist until
+        # process end.
         if self.cache_capacity == -1:
             self._cache[path] = arr
             return
+        
         # bounded LRU
         cap = self.cache_capacity
         if path in self._cache:
+            # LRU logic: move cache hit to end (most recently used position)
             self._cache.move_to_end(path)
         self._cache[path] = arr
         while len(self._cache) > cap:
-            self._cache.popitem(last=False)  # evict LRU
+            self._cache.popitem(last=False)  # evict least recently used
 
     def _get_or_load(self, path: Path) -> np.ndarray:
         arr = self._cache.get(path)
@@ -162,7 +173,7 @@ class FileState:
             self._touch_cache(path, arr)
         else:
             # refresh LRU position if using capacity
-            if self.cache_capacity is not None:
+            if self.cache_capacity is not None and self.cache_capacity > 0:
                 self._cache.move_to_end(path)
         return arr
 
@@ -178,7 +189,8 @@ class FileState:
 
     def _stack_channels(self, arrays: List[np.ndarray]) -> np.ndarray:
         """
-        Stack as (C, H, W) for 2D planes, or (C, H, W, K) if planes are multi-channel (e.g., RGB).
+        Stack as (C, H, W) for 2D planes, 
+        or (C, H, W, K) if planes are multi-channel (e.g., RGB).
         """
         if not arrays:
             # Return empty with zero channels? Usually caller ensures non-empty.
