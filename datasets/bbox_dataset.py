@@ -301,57 +301,41 @@ class BBoxCropImageDataset(BaseImageDataset):
         from pathlib import Path
         import importlib
         
-        # Reconstruct file_index DataFrame
-        file_index_data = config['file_index']
-        file_index = pd.DataFrame(file_index_data['records'])
-        if not file_index.empty:
-            file_index = file_index[file_index_data['columns']]  # Ensure column order
-            
-            # Convert string paths back to Path objects
-            for col in file_index.columns:
-                file_index[col] = file_index[col].apply(
-                    lambda x: Path(x) if isinstance(x, str) else x
-                )
-        
-        # Reconstruct metadata DataFrame
-        metadata = None
-        if config.get('metadata') is not None:
-            metadata = pd.DataFrame(config['metadata'])
-        
-        # Reconstruct object_metadata list of DataFrames
-        object_metadata = None
-        if config.get('object_metadata') is not None:
-            object_metadata = []
-            for records in config['object_metadata']:
-                if records:
-                    object_metadata.append(pd.DataFrame(records))
-                else:
-                    object_metadata.append(pd.DataFrame())
+        # Reuse parent's core deserialization logic
+        core_kwargs = cls._deserialize_core_config(config)
 
+        # Handle bbox-specific deserialization
         # Reconstruct bbox_annotations DataFrame
-        bbox_annotations_data = config.get('bbox_annotations', {})
-        if not bbox_annotations_data:
-            raise ValueError("bbox_annotations data is empty or missing in the config.")
+        bbox_annotations_data = config.get('bbox_annotations', None)
+        if bbox_annotations_data is None:
+            raise ValueError(
+                "Expected 'bbox_annotations' in config, "
+                "but it is missing or empty."
+            )
         bbox_annotations = pd.DataFrame(bbox_annotations_data)
 
         # Reconstruct bbox_schema
         bbox_scheme_class = config.get('bbox_schema_class')
         if not bbox_scheme_class:
-            raise ValueError("bbox_schema_class is missing in the config.")
+            raise ValueError(
+                "Expected 'bbox_schema_class' in config, "
+                "but it is missing or empty."
+            )
         module_name, class_name = bbox_scheme_class.rsplit(".", 1)
         module = importlib.import_module(module_name)
         schema_cls = getattr(module, class_name)
-        bbox_schema_data = config.get('bbox_schema', {})
-        if not bbox_schema_data:
-            raise ValueError("bbox_schema data is empty or missing in the config.")
+        bbox_schema_data = config.get('bbox_schema', None)
+        if bbox_schema_data is None:
+            raise ValueError(
+                "Expected 'bbox_schema' in config, "
+                "but it is missing or empty."
+            )
         bbox_schema = schema_cls.from_dict(bbox_schema_data)
 
         return cls(
-            file_index=file_index,
+            **core_kwargs,
             bbox_schema=bbox_schema,
             bbox_annotations=bbox_annotations,
-            metadata=metadata,
-            object_metadata=object_metadata,
             post_crop_transforms=post_crop_transforms,
             transform=transform,
             input_only_transform=input_only_transform,

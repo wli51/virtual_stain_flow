@@ -490,6 +490,68 @@ class BaseImageDataset(Dataset):
         )
 
     @classmethod
+    def _deserialize_core_config(
+        cls,
+        config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Extract and deserialize core dataset configuration 
+            components and returns a dictionary of kwargs ready
+            to be passed to the BaseImageDataset constructor.
+
+        Subclass deserialization methods may call this method
+            to conveniently extract the common configuration.
+        """
+        # Reconstruct file_index DataFrame
+        file_index_data = config.get('file_index', None)
+        if file_index_data is None:
+            raise ValueError(
+                "Expected 'file_index' in config, "
+                "but found none or empty."
+            )
+        
+        file_index = pd.DataFrame(file_index_data['records'])
+        # Convert string paths back to Path objects
+        for col in file_index.columns:
+            file_index[col] = file_index[col].apply(
+                lambda x: Path(x) if isinstance(x, str) else x
+            )
+
+        pil_image_mode = config.get('pil_image_mode', 'I;16')
+        
+        # Reconstruct metadata DataFrame
+        metadata_data = config.get('metadata', None)
+        metadata = None
+        if metadata_data is not None:
+            metadata = pd.DataFrame(metadata_data)
+        
+        # Reconstruct object_metadata list of DataFrames
+        object_metadata_data = config.get('object_metadata', None)
+        object_metadata = None
+        if object_metadata_data is not None:
+            object_metadata = []
+            for records in config['object_metadata']:
+                if records:
+                    object_metadata.append(pd.DataFrame(records))
+                else:
+                    object_metadata.append(pd.DataFrame())
+
+        
+        input_channel_keys=config.get('input_channel_keys', None)
+        target_channel_keys=config.get('target_channel_keys', None)
+        cache_capacity=config.get('cache_capacity', None)
+                    
+        return {
+            'file_index': file_index,
+            'pil_image_mode': pil_image_mode,
+            'metadata': metadata,
+            'object_metadata': object_metadata,
+            'input_channel_keys': input_channel_keys,
+            'target_channel_keys': target_channel_keys,
+            'cache_capacity': cache_capacity
+        }
+
+    @classmethod
     def _deserialize_config(
         cls,
         config: Dict[str, Any],
@@ -499,49 +561,28 @@ class BaseImageDataset(Dataset):
     ) -> 'BaseImageDataset':
         """
         Internal method to deserialize a configuration dictionary.
+        Because this is the base call, no further deserialization
+            is needed beyond calling `_deserialize_core_config`.
+        Subclass should override this method and use 
+            `_deserialize_core_config` as is to extract the common 
+            configuration.
         
         :param config: Configuration dictionary.
         :param transform: Optional transform to apply to both input and target images.
         :param input_only_transform: Optional transform to apply only to input images.
         :param target_only_transform: Optional transform to apply only to target images.
         :return: BaseImageDataset instance.
-        """
-        # Reconstruct file_index DataFrame
-        file_index_data = config['file_index']
-        file_index = pd.DataFrame(file_index_data['records'])
-        if not file_index.empty:
-            file_index = file_index[file_index_data['columns']]  # Ensure column order
-            
-            # Convert string paths back to Path objects
-            for col in file_index.columns:
-                file_index[col] = file_index[col].apply(
-                    lambda x: Path(x) if isinstance(x, str) else x
-                )
-        
-        # Reconstruct metadata DataFrame
-        metadata = None
-        if config.get('metadata') is not None:
-            metadata = pd.DataFrame(config['metadata'])
-        
-        # Reconstruct object_metadata list of DataFrames
-        object_metadata = None
-        if config.get('object_metadata') is not None:
-            object_metadata = []
-            for records in config['object_metadata']:
-                if records:
-                    object_metadata.append(pd.DataFrame(records))
-                else:
-                    object_metadata.append(pd.DataFrame())
-        
+        """        
+
+        # when overriding this method, subclasses should still call
+        core_ds_kwargs = cls._deserialize_core_config(config)
+
+        # do some more deserialization
+        #core_ds_kwargs['additional_complexity'] = ...
+
         return cls(
-            file_index=file_index,
-            pil_image_mode=config.get('pil_image_mode', 'I;16'),
-            metadata=metadata,
-            object_metadata=object_metadata,
-            input_channel_keys=config.get('input_channel_keys'),
-            target_channel_keys=config.get('target_channel_keys'),
+            **core_ds_kwargs,
             transform=transform,
             input_only_transform=input_only_transform,
             target_only_transform=target_only_transform,
-            cache_capacity=config.get('cache_capacity')
         )
