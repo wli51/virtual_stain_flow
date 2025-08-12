@@ -71,6 +71,27 @@ compatible with torch `DataLoader`.
   - **Input/Target channels**
   - **Albumentations transforms** (`transform`, `input_only_transform`, `target_only_transform`)
 
+## **`BBoxCropImageDataset` Class**
+
+### Purpose
+- Extends `BaseImageDataset` to provide the infranstructure for **bounding box-based image cropping** functionality.
+- Requires user supplied bounding box coordiantes and optionally rotation specifications.
+- Loads full images and extracts crops based on bounding box annotations with optional rotation.
+- Compatible with `torch.utils.data.DataLoader` for training pipelines.
+
+### Key Features
+- **Bounding box cropping**: Extracts rectangular regions from images based on (xmin, ymin, xmax, ymax) coordinates.
+- **Rotation support**: Applies rotation around specified centers before cropping.
+- **Post-crop transforms**: Configurable transformations applied after crop extraction.
+- **Schema validation**: Uses `BBoxSchema` to ensure proper column naming and data types for bounding box annotations.
+
+### Constructor Parameters
+- `bbox_annotations` — DataFrame with bounding box coordinates and rotation parameters for each crop.
+- `post_crop_transforms` — Optional transforms applied to crops after extraction.
+- `bbox_schema` — Schema defining column names for bounding box data (defaults to `BBoxSchema()`).
+- Inherits all `BaseImageDataset` parameters (`file_index`, `metadata`, etc.).
+- Extends parent class serialization.
+
 ---
 
 ### Key Features
@@ -114,6 +135,14 @@ dataset = BaseImageDataset(
     input_only_transform: Optional[TransformType] = None,
     target_only_transform: Optional[TransformType] = None,
     cache_capacity: Optional[int] = None
+)
+
+crop_dataset = BBoxCropImageDataset(
+    file_index: pd.DataFrame,
+    bbox_annotations: pd.DataFrame,
+    post_crop_transforms: Optional[TransformType] = None,
+    bbox_schema: BBoxSchema = BBoxSchema(),
+    **kwargs
 )
 ```
 
