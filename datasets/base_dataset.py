@@ -57,9 +57,6 @@ def validate_compose_transform(
             f"Expected Compose, ImageOnlyTransform, or Sequence[ImageOnlyTransform], got {type(obj)}."
         )
 
-"""
-
-"""
 class BaseImageDataset(Dataset):
     
     def __init__(
