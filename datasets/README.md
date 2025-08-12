@@ -62,6 +62,7 @@ return the metadata entry associated with last loaded view/fov.
 - Provides a **drop-in torch `torch.utils.data.Dataset`** implementation,
 compatible with torch `DataLoader`.
   - **Access of images** via `obj[i]`
+- Serves as the foundation for subclass dataset implementation.
 - Encapsulates:
   - **File access** via `DatasetView` + `FileState`
   - **Index tracking** via `IndexState`
@@ -93,11 +94,16 @@ compatible with torch `DataLoader`.
   - `input_only_transform`: applied only to input, following `transform`.
   - `target_only_transform`: applied only to target, following `transform`.
 
+- **JSON serialization** support: 
+  - `to_json_config(filepath)` for saving dataset configurations as human readable json. Note
+  that currently the transform configuration will be lost due to inability to serialize transform
+  objects.
+  - `from_json_config(filepath, **transforms)` for loading dataset configurations back.
 ---
 
-### Constructor
+### Construction Example
 ```python
-BaseImageDataset(
+dataset = BaseImageDataset(
     file_index: pd.DataFrame,
     pil_image_mode: str = "I;16",
     metadata: Optional[pd.DataFrame] = None,
@@ -108,5 +114,19 @@ BaseImageDataset(
     input_only_transform: Optional[TransformType] = None,
     target_only_transform: Optional[TransformType] = None,
     cache_capacity: Optional[int] = None
+)
+```
+
+### Save/Load Example
+
+```python
+
+dataset.to_json_config("dataset_config.json")
+
+dataset_loaded = BaseImageDataset.from_json_config(
+    "dataset_config.json",
+    transform=augmentation_pipeline,
+    input_only_transform=input_preprocessing,
+    target_only_transform=target_preprocessing
 )
 ```
