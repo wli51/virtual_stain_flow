@@ -8,6 +8,8 @@ image datasets.
 """
 
 from typing import Dict, Sequence, Optional, Tuple, Union, Any
+import json
+from pathlib import Path, PurePath
 
 import numpy as np
 import pandas as pd
@@ -394,3 +396,152 @@ class BaseImageDataset(Dataset):
                 "Call __getitem__ or _get_raw_item first."
             )        
         return self._object_metadata[self.index_state.last]
+
+    def to_json_config(self, filepath: Union[str, Path]) -> None:
+        """
+        Exposed method for serializing the dataset as a JSON file, 
+        facilitating reproducibility by saving all information needed 
+        to reconstruct the dataset. At the moment transforms are not
+        serializable and hence are ignored. Future development may
+        address this limitation.
+
+        :param filepath: Path where to save the JSON configuration file.
+        """
+        config = self._serialize_config()
+        
+        filepath = Path(filepath)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+
+    def _serialize_config(self) -> Dict[str, Any]:
+        """
+        Internal method to serialize the dataset configuration to a dictionary.
+        
+        :return: Dictionary containing the serialized configuration.
+        """
+        # Convert file_index to records format for JSON serialization
+        # Convert Path objects to strings for JSON compatibility
+        file_index_for_json = self.file_index.copy()
+        for col in file_index_for_json.columns:
+            file_index_for_json[col] = file_index_for_json[col].apply(
+                lambda x: str(x) if isinstance(x, (Path, PurePath)) else x
+            )
+        
+        file_index_records = file_index_for_json.to_dict('records')
+        file_index_columns = list(self.file_index.columns)
+        
+        # Serialize metadata DataFrame
+        metadata_records = None
+        if self.metadata is not None and not self.metadata.empty:
+            metadata_records = self.metadata.to_dict('records')
+        
+        # Serialize object_metadata list of DataFrames
+        object_metadata_records = []
+        if self.object_metadata is not None:
+            for df in self.object_metadata:
+                if df is not None and not df.empty:
+                    object_metadata_records.append(df.to_dict('records'))
+                else:
+                    object_metadata_records.append([])
+        
+        config = {
+            'file_index': {
+                'records': file_index_records,
+                'columns': file_index_columns
+            },
+            'pil_image_mode': self.pil_image_mode,
+            'metadata': metadata_records,
+            'object_metadata': object_metadata_records,
+            'input_channel_keys': self.input_channel_keys,
+            'target_channel_keys': self.target_channel_keys,
+            'cache_capacity': self.file_state.cache_capacity,
+            'dataset_length': len(self)
+        }
+        
+        return config
+
+    @classmethod
+    def from_json_config(
+        cls, 
+        filepath: Union[str, Path],
+        transform: Optional[TransformType] = None,
+        input_only_transform: Optional[TransformType] = None,
+        target_only_transform: Optional[TransformType] = None,
+    ) -> 'BaseImageDataset':
+        """
+        Create a BaseImageDataset instance from a JSON configuration file.
+        Wraps around _deserialize_config with an extra file reading step.
+
+        :param filepath: Path to the JSON configuration file.
+        :param transform: Optional transform to apply to both input and target images.
+        :param input_only_transform: Optional transform to apply only to input images.
+        :param target_only_transform: Optional transform to apply only to target images.
+        :return: BaseImageDataset instance.
+        """
+        filepath = Path(filepath)
+        with open(filepath, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        return cls._deserialize_config(
+            config,
+            transform=transform,
+            input_only_transform=input_only_transform,
+            target_only_transform=target_only_transform
+        )
+
+    @classmethod
+    def _deserialize_config(
+        cls,
+        config: Dict[str, Any],
+        transform: Optional[TransformType] = None,
+        input_only_transform: Optional[TransformType] = None,
+        target_only_transform: Optional[TransformType] = None,
+    ) -> 'BaseImageDataset':
+        """
+        Internal method to deserialize a configuration dictionary.
+        
+        :param config: Configuration dictionary.
+        :param transform: Optional transform to apply to both input and target images.
+        :param input_only_transform: Optional transform to apply only to input images.
+        :param target_only_transform: Optional transform to apply only to target images.
+        :return: BaseImageDataset instance.
+        """
+        # Reconstruct file_index DataFrame
+        file_index_data = config['file_index']
+        file_index = pd.DataFrame(file_index_data['records'])
+        if not file_index.empty:
+            file_index = file_index[file_index_data['columns']]  # Ensure column order
+            
+            # Convert string paths back to Path objects
+            for col in file_index.columns:
+                file_index[col] = file_index[col].apply(
+                    lambda x: Path(x) if isinstance(x, str) else x
+                )
+        
+        # Reconstruct metadata DataFrame
+        metadata = None
+        if config.get('metadata') is not None:
+            metadata = pd.DataFrame(config['metadata'])
+        
+        # Reconstruct object_metadata list of DataFrames
+        object_metadata = None
+        if config.get('object_metadata') is not None:
+            object_metadata = []
+            for records in config['object_metadata']:
+                if records:
+                    object_metadata.append(pd.DataFrame(records))
+                else:
+                    object_metadata.append(pd.DataFrame())
+        
+        return cls(
+            file_index=file_index,
+            pil_image_mode=config.get('pil_image_mode', 'I;16'),
+            metadata=metadata,
+            object_metadata=object_metadata,
+            input_channel_keys=config.get('input_channel_keys'),
+            target_channel_keys=config.get('target_channel_keys'),
+            transform=transform,
+            input_only_transform=input_only_transform,
+            target_only_transform=target_only_transform,
+            cache_capacity=config.get('cache_capacity')
+        )
