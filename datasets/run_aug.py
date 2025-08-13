@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Union, Dict, Any
 import pathlib
-import hashlib
 
 import pandas as pd
 import numpy as np
@@ -43,18 +42,6 @@ def normalize_probs(p: np.ndarray) -> np.ndarray:
     p[~np.isfinite(p)] = 0.0
     s = p.sum()
     return p / s if s > 0 else np.full_like(p, 1.0 / len(p))
-
-def keyed_rng(*keys: int) -> Generator:
-    """
-    Construct a deterministic RNG keyed by a tuple of integers.
-    Output is independent of iteration order and only depends on the keys.
-    """
-    h = hashlib.blake2b(digest_size=16)
-    for k in keys:
-        h.update(int(k).to_bytes(8, "little", signed=False))
-    seed_int = int.from_bytes(h.digest(), "little")
-    ss = SeedSequence(seed_int)
-    return Generator(PCG64(ss))
 
 def normalize_pathlike(p: Union[str, pathlib.Path], case_sensitive: bool=True) -> str:
     s = str(p)

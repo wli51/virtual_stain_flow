@@ -8,9 +8,11 @@ rotation and translation within the original image FOV.
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Union, Dict
+import hashlib
 
 import pandas as pd
 import numpy as np
+from numpy.random import PCG64, Generator, SeedSequence
 from numpy.random import Generator
 from scipy.special import softmax
 
@@ -36,6 +38,18 @@ def compute_weighted_softmax(limits_df: pd.DataFrame, weight_cols: List[str]) ->
     else:
         weights = sum(np.abs(limits_df[col].to_numpy(dtype=float)) for col in weight_cols)
     return softmax(weights)
+
+def keyed_rng(*keys: int) -> Generator:
+    """
+    Construct a deterministic RNG keyed by a tuple of integers.
+    Output is independent of iteration order and only depends on the keys.
+    """
+    h = hashlib.blake2b(digest_size=16)
+    for k in keys:
+        h.update(int(k).to_bytes(8, "little", signed=False))
+    seed_int = int.from_bytes(h.digest(), "little")
+    ss = SeedSequence(seed_int)
+    return Generator(PCG64(ss))
 
 """
 Real Augmentations
