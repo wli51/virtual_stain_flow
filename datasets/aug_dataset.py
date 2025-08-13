@@ -11,6 +11,10 @@ from scipy.special import softmax
 
 from .bbox_schema import BBoxSchema
 
+"""
+helpers
+"""
+
 def roundcast(arr: np.ndarray, mode: str = "round") -> np.ndarray:
     modes = {"round": np.rint, "floor": np.floor, "ceil": np.ceil}
     if mode not in modes:
@@ -51,10 +55,9 @@ def keyed_rng(*keys: int) -> Generator:
     ss = SeedSequence(seed_int)
     return Generator(PCG64(ss))
 
-# ----------------------------
-# Aug base + concrete augs
-# ----------------------------
-
+"""
+Real Augmentations
+"""
 class BaseAugmentation:
     name: str
     def compute_limits(self, df: pd.DataFrame, schema: BBoxSchema, **kwargs) -> Tuple[pd.DataFrame, np.ndarray]:
@@ -104,7 +107,6 @@ class BaseAugmentation:
             df[key] = value
         return df
 
-# ---- Rotation ----
 @dataclass(frozen=True)
 class RotationAug(BaseAugmentation):
     name: str = "rotation"
@@ -255,7 +257,6 @@ class RotationAug(BaseAugmentation):
         augs[schema.angle] += params["_sampled_angle"]
         return self._add_augmentation_metadata(augs, params)
 
-# ---- Translation ----
 @dataclass(frozen=True)
 class TranslationAug(BaseAugmentation):
     name: str = "translation"
@@ -355,10 +356,9 @@ class TranslationAug(BaseAugmentation):
 
         return self._add_augmentation_metadata(augs, params)
 
-# ----------------------------
-# Deterministic sorting
-# ----------------------------
-
+"""
+Augmentation Runner
+"""
 def deterministic_sort_metadata(
     file_index: pd.DataFrame,
     metadata: pd.DataFrame,
@@ -386,10 +386,6 @@ def deterministic_sort_metadata(
     file_index_sorted = file_index.loc[order].reset_index(drop=True)
     metadata_sorted = metadata.loc[order].reset_index(drop=True)
     return file_index_sorted, metadata_sorted
-
-# ----------------------------
-# Planner & pipeline
-# ----------------------------
 
 class AugPlanConfig:
     def __init__(
