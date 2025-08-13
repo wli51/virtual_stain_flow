@@ -33,35 +33,11 @@ def spawn_generators(n: int, seed: int) -> List[Generator]:
     ss = SeedSequence(seed)
     return [Generator(PCG64(s)) for s in ss.spawn(n)]
 
-def diagnose_generator_independence(generators: List[Generator], n_samples: int = 1000) -> Dict[str, float]:
-    if len(generators) < 2:
-        return {}
-    samples_0 = generators[0].random(n_samples)
-    samples_1 = generators[1].random(n_samples)
-    correlation = np.corrcoef(samples_0, samples_1)[0, 1]
-    return {
-        'correlation_gen0_gen1': correlation,
-        'mean_gen0': np.mean(samples_0),
-        'mean_gen1': np.mean(samples_1),
-        'std_gen0': np.std(samples_0),
-        'std_gen1': np.std(samples_1)
-    }
-
 def normalize_probs(p: np.ndarray) -> np.ndarray:
     p = np.asarray(p, dtype=float)
     p[~np.isfinite(p)] = 0.0
     s = p.sum()
     return p / s if s > 0 else np.full_like(p, 1.0 / len(p))
-
-def weighted_choice(gen: Generator, p: np.ndarray, size: int, replace: bool = True) -> np.ndarray:
-    p = normalize_probs(p)
-    n = len(p)
-    if not replace and size > n:
-        replace = True
-    return gen.choice(n, size=size, replace=replace, p=p)
-
-def normalize_pathlike(x: pathlib.Path, case_sensitive: bool = True) -> str:
-    return x.as_posix().lower() if not case_sensitive else x.as_posix()
 
 def keyed_rng(*keys: int) -> Generator:
     """
@@ -380,7 +356,7 @@ class TranslationAug(BaseAugmentation):
         return self._add_augmentation_metadata(augs, params)
 
 # ----------------------------
-# Deterministic sorting (unchanged)
+# Deterministic sorting
 # ----------------------------
 
 def deterministic_sort_metadata(
@@ -390,6 +366,9 @@ def deterministic_sort_metadata(
     case_sensitive: bool = True,
     na_position: str = "last"
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    
+    def normalize_pathlike(x: pathlib.Path, case_sensitive: bool = True) -> str:
+        return x.as_posix().lower() if not case_sensitive else x.as_posix()
 
     if len(file_index) != len(metadata):
         raise ValueError("file_index and metadata must have the same length")
@@ -511,6 +490,13 @@ def run_augmentations(
 
     parent_key_series = make_parent_key(file_index_sorted, metadata_sorted, key_cols_for_parent)
     parent_key_arr = parent_key_series.to_numpy()
+
+    def weighted_choice(gen: Generator, p: np.ndarray, size: int, replace: bool = True) -> np.ndarray:
+        p = normalize_probs(p)
+        n = len(p)
+        if not replace and size > n:
+            replace = True
+        return gen.choice(n, size=size, replace=replace, p=p)
 
     for k, aug in enumerate(augmentations):
         slot_ids = per_type_indices[k]
