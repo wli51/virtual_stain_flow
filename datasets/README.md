@@ -92,9 +92,26 @@ compatible with torch `DataLoader`.
 - Inherits all `BaseImageDataset` parameters (`file_index`, `metadata`, etc.).
 - Extends parent class serialization.
 
+### `CropGenerator` (Abstract Base Class)
+- **Abstract interface** for implementing crop generation strategies from object metadata.
+- Defines the contract for generating bounding box annotations from object coordinates.
+- Enables extensible crop generation algorithms while maintaining consistent API.
+
+### `ObjectCenteredCropGenerator`
+- **Concrete implementation** that generates square crops centered on object coordinates.
+- **Key capabilities**:
+  - Automatic FOV detection from image files or manual specification
+  - Smart crop filtering pipeline with deduplication, subset removal, and minimal selection
+  - Configurable crop sizes and object coordinate field mapping
+  - Boundary-aware cropping that respects image dimensions
+
+### `CropCellImageDataset`
+- Generates object-centered crops (as bounding box annotations) from object level metadata and passes to the `BBoxCropImageDataset` constructor. 
+- Uses `CropGenerator` class backbone, specifically, `ObjectCenteredCropGenerator` for generation of deterministic bounding boxes provided the same set of objects in the same size fov.
+
 ---
 
-### Key Features
+### Key Features (shared across all dataset classes)
 
 - **Immutable file mapping**:  
   `file_index` and `pil_image_mode` are fixed for the lifetime of the dataset.
