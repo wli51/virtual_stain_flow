@@ -98,6 +98,103 @@ class BaseAugmentation:
 class RotationAug(BaseAugmentation):
     name: str = "rotation"
     step_deg: float = 1.0
+    max_deg: float = 90.0
+    eps: float = 1e-9
+    default_chunk_size: int = 1024
+
+    def _compute_rotation_limits(
+        self,
+        xmin: np.ndarray, ymin: np.ndarray, xmax: np.ndarray, ymax: np.ndarray,
+        cx: np.ndarray, cy: np.ndarray, fov_h: np.ndarray, fov_w: np.ndarray,
+        chunk_size: Optional[int] = None
+    ) -> pd.DataFrame:
+        """
+        Vectorized computation of rotation limits for bounding boxes.
+        """
+        # this is kind of sloppy
+        xmin = np.asarray(xmin, dtype=np.float64).ravel()
+        ymin = np.asarray(ymin, dtype=np.float64).ravel()
+        xmax = np.asarray(xmax, dtype=np.float64).ravel()
+        ymax = np.asarray(ymax, dtype=np.float64).ravel()
+        cx   = np.asarray(cx, dtype=np.float64).ravel()
+        cy   = np.asarray(cy, dtype=np.float64).ravel()
+        fov_h = np.asarray(fov_h, dtype=np.float64).ravel()
+        fov_w = np.asarray(fov_w, dtype=np.float64).ravel()
+    
+        N = xmin.shape[0]
+        if not all(a.shape == (N,) for a in (
+            ymin, xmax, ymax, cx, cy, fov_h, fov_w)):
+            raise ValueError("All input arrays must have the same length.")
+        
+        # A rotated box safely contained in a FOV if all its corners are 
+        # inside the FOV ,so we compute and rotated corners for each bbox to 
+        # determine the limits. Here we first represent boxes by their corners
+        corners = np.stack([
+            np.stack([xmin, ymin], axis=1),
+            np.stack([xmax, ymin], axis=1),
+            np.stack([xmax, ymax], axis=1),
+            np.stack([xmin, ymax], axis=1),
+        ], axis=1)  # (N,4,2)
+
+        # and center of rotations provided
+        centers = np.stack([cx, cy], axis=1)[:, None, :]  # (N,2) -> (N,1,2)
+
+        # discrete angles of rotation to check safe rotation range
+        # per direction of rotation, so with both clockwise and counter-clockwise
+        # rotations we check 2 * n_steps angles
+        n_steps = int(np.floor(self.max_deg / self.step_deg + self.eps))
+        ang_pos = np.arange(1, n_steps + 1, dtype=np.float64) * self.step_deg
+        ang_neg = -ang_pos # (M, )
+
+        def rot_mats(angles):
+            th = np.deg2rad(angles)
+            cos_t, sin_t = np.cos(th), np.sin(th)
+            R = np.stack([
+                np.stack([cos_t, -sin_t], axis=-1), 
+                np.stack([sin_t,  cos_t], axis=-1)
+            ], axis=-2)
+            return R
+        R_pos = rot_mats(ang_pos)  # (M, 2, 2)
+        R_neg = rot_mats(ang_neg)  # (M, 2, 2)
+
+        # this method does batched vectorization to avoid using too much memory
+        def batched_compute_limit(
+            start: int,
+            end: int,
+            r_mats: np.ndarray, # must be in the order of increasing mangnitude
+        ):
+            _corners = corners[start:end] # (B, 4, 2)
+            _centers = centers[start:end] # (B, 1, 2)
+            _fov_h = fov_h[start:end, None, None] # (B, ) -> (B, 1, 1)
+            _fov_w = fov_w[start:end, None, None] # (B, ) -> (B, 1, 1)
+
+            corners_rotated = np.einsum( # centered rotation of corners
+                'bfd,mde->bmfe', _corners - _centers, r_mats 
+            ) + _centers[:, None, :]  # (B, M, 4, 2)
+            x, y = corners_rotated[..., 0], corners_rotated[..., 1]  # (B, M, 4)
+
+            # check box containment in FOV per all boxes (B) and all degrees (M)
+            corners_inside_fov = (x >= -self.eps) & (x <= _fov_w - self.eps) & \
+                (y >= -self.eps) & (y <= _fov_h - self.eps)  # (B, M, 4)
+            box_inside_fov = np.all(corners_inside_fov, axis=-1)  # (B, M)
+
+            # compute largest degree of rotation allowed (for direction)
+            max_valid_steps = np.cumprod(box_inside_fov, axis=1).sum(axis=1)  # (B,)
+            return max_valid_steps.astype(np.float64) * self.step_deg
+        
+        if chunk_size is None:
+            chunk_size = N
+        max_pos_all = np.empty((N,), dtype=np.float64)
+        max_neg_all = np.empty((N,), dtype=np.float64)
+        for s in range(0, N, chunk_size):
+            e = min(s + chunk_size, N)
+            max_pos_all[s:e] = batched_compute_limit(s, e, R_pos)
+            max_neg_all[s:e] = batched_compute_limit(s, e, R_neg)
+        
+        return pd.DataFrame({
+            'min_angle': -max_neg_all,
+            'max_angle': max_pos_all
+        })
 
     def compute_limits(
         self,
@@ -106,77 +203,18 @@ class RotationAug(BaseAugmentation):
         fov_h: Union[int, np.ndarray] = 1080,
         fov_w: Union[int, np.ndarray] = 1080,
     ) -> Tuple[pd.DataFrame, np.ndarray]:
-
-        def rotate_corners(
-            corners: np.ndarray, 
-            angle_deg: float, 
-            center: np.ndarray
-        ) -> np.ndarray:
-
-            theta = np.deg2rad(angle_deg)
-            cos_theta, sin_theta = np.cos(theta), np.sin(theta)
-            rot_matrix = np.array([
-                [cos_theta, -sin_theta], 
-                [sin_theta,  cos_theta]
-            ], dtype=np.float64)
-
-            shifted = corners - center
-            return shifted @ rot_matrix.T + center
-
-        def corners_inside_fov(
-            corners: np.ndarray, fov_w: int, fov_h: int
-        ) -> bool:
-            return np.all((0 <= corners[:, 0]) & (corners[:, 0] < fov_w) &
-                        (0 <= corners[:, 1]) & (corners[:, 1] < fov_h))
-
-        def find_max_rotation_range(
-            bbox: Tuple[int, int, int, int], 
-            center: Tuple[float, float],
-            fov_shape: Tuple[int, int], 
-            step_deg: float = 1.0
-        ) -> Tuple[int, int]:
-            xmin, ymin, xmax, ymax = bbox
-            fov_h, fov_w = fov_shape
-            corners = np.array([[xmin, ymin], [xmax, ymin], [xmax, ymax], [xmin, ymax]])
-            center_point = np.array([[center[0], center[1]]], dtype=np.float64)
-            n_steps = int(np.floor(180.0 / step_deg + 1e-12))
-
-            k_pos = 0
-            for k in range(1, n_steps + 1):
-                angle = k * step_deg
-                if corners_inside_fov(rotate_corners(corners, angle, center_point), fov_w, fov_h):
-                    k_pos = k
-                else:
-                    break
-
-            k_neg = 0
-            for k in range(1, n_steps + 1):
-                angle = -k * step_deg
-                if corners_inside_fov(rotate_corners(corners, angle, center_point), fov_w, fov_h):
-                    k_neg = k
-                else:
-                    break
-
-            return int(np.floor(-k_neg * step_deg)), int(np.ceil(k_pos * step_deg))
-
-        fov_h = ensure_array_broadcast(fov_h, len(df))
-        fov_w = ensure_array_broadcast(fov_w, len(df))
-
-        df = df.copy().bbox(schema).ensure_columns()
-        bbox_acc = df.bbox(schema)
-
-        limits_data = []
-        for i in range(len(df)):
-            row = bbox_acc.row(i)
-            min_angle, max_angle = find_max_rotation_range(
-                bbox=row.bbox,
-                center=row.rot_center,
-                fov_shape=(fov_h[i], fov_w[i]),
-                step_deg=self.step_deg
-            )
-            limits_data.append([min_angle, max_angle])
-
-        limits = pd.DataFrame(limits_data, columns=['min_angle', 'max_angle'])
+        
+        limits = self._compute_rotation_limits(
+            xmin=df[schema.x_min].to_numpy(float),
+            ymin=df[schema.y_min].to_numpy(float),
+            xmax=df[schema.x_max].to_numpy(float),
+            ymax=df[schema.y_max].to_numpy(float),
+            cx=df[schema.cx].to_numpy(float),
+            cy=df[schema.cy].to_numpy(float),
+            fov_h=ensure_array_broadcast(fov_h, len(df), dtype=float),
+            fov_w=ensure_array_broadcast(fov_w, len(df), dtype=float),
+            chunk_size=self.default_chunk_size
+        )
         weights = compute_weighted_softmax(limits, ['max_angle', 'min_angle'])
         return limits, weights
 
@@ -369,62 +407,6 @@ def deterministic_sort_metadata(
     file_index_sorted = file_index.loc[order].reset_index(drop=True)
     metadata_sorted = metadata.loc[order].reset_index(drop=True)
     return file_index_sorted, metadata_sorted
-
-# ----------------------------
-# Legacy safe-limit helpers (optional)
-# ----------------------------
-
-def compute_safe_translation_limits(
-    metadata: pd.DataFrame,
-    fov_h: Union[int, np.ndarray],
-    fov_w: Union[int, np.ndarray],
-    bbox_col_prefix: str = '_patch_bbox_',
-    max_translation_x: Optional[float] = None,
-    max_translation_y: Optional[float] = None,
-):
-    bbox_df = metadata.loc[:, [f'{bbox_col_prefix}{col}' for col in ['x_min', 'y_min', 'x_max', 'y_max']]]
-    bbox_df.columns = ['x_min', 'y_min', 'x_max', 'y_max']
-    safe_offset = pd.DataFrame(columns=['dx_min', 'dx_max', 'dy_min', 'dy_max'], index=bbox_df.index)
-
-    if isinstance(fov_h, int):
-        fov_h = np.full(len(bbox_df), fov_h, dtype=int)
-    if isinstance(fov_w, int):
-        fov_w = np.full(len(bbox_df), fov_w, dtype=int)
-
-    if max_translation_x is None:
-        max_translation_x = (bbox_df['x_max'] - bbox_df['x_min']) * 0.45
-    if max_translation_y is None:
-        max_translation_y = (bbox_df['y_max'] - bbox_df['y_min']) * 0.45
-
-    safe_offset['dx_min'] = np.maximum(-1 * bbox_df['x_min'], -1 * max_translation_x)
-    safe_offset['dx_max'] = np.minimum(fov_w - bbox_df['x_max'], max_translation_x)
-    safe_offset['dy_min'] = np.maximum(-1 * bbox_df['y_min'], -1 * max_translation_y)
-    safe_offset['dy_max'] = np.minimum(fov_h - bbox_df['y_max'], max_translation_y)
-    return safe_offset
-
-def compute_safe_rotation_limits(
-    metadata: pd.DataFrame,
-    fov_h: Union[int, np.ndarray],
-    fov_w: Union[int, np.ndarray],
-    step_deg: float = 1.0,
-    bbox_col_prefix: str = '_patch_bbox_',
-) -> pd.DataFrame:
-    bbox_df = metadata.loc[:, [f'{bbox_col_prefix}{col}' for col in
-                               ['x_min', 'y_min', 'x_max', 'y_max', 'rot_x_center', 'rot_y_center']]]
-    bbox_df.columns = ['x_min', 'y_min', 'x_max', 'y_max', 'cx', 'cy']
-
-    fov_h = ensure_array_broadcast(fov_h, len(bbox_df))
-    fov_w = ensure_array_broadcast(fov_w, len(bbox_df))
-
-    limits_data = []
-    for i, row in bbox_df.iterrows():
-        bbox = (row['x_min'], row['y_min'], row['x_max'], row['y_max'])
-        center = (row['cx'], row['cy'])
-        fov_shape = (fov_h[i], fov_w[i])
-        min_angle, max_angle = find_max_rotation_range(bbox, center, fov_shape, step_deg)
-        limits_data.append([min_angle, max_angle])
-
-    return pd.DataFrame(limits_data, columns=['min_angle', 'max_angle'])
 
 # ----------------------------
 # Planner & pipeline
