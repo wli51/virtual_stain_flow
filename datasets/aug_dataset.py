@@ -63,6 +63,41 @@ class BaseAugmentation:
         raise NotImplementedError
     def materialize(self, schema: BBoxSchema, source_rows: pd.DataFrame, params: Dict[str, np.ndarray], rounding: str = "round") -> pd.DataFrame:
         raise NotImplementedError
+    def _sample_between(
+        self,
+        n: int,
+        lo: np.ndarray,
+        hi: np.ndarray,
+        *,
+        gen: Optional[Generator] = None,
+        keyed_info: Optional[Dict[str, np.ndarray | int]] = None,
+        additional_key: int = 0,
+    ) -> Dict[str, np.ndarray]:
+        """
+        Helper for drawing n samples in [lo, hi) per row.
+        - If keyed_info provided -> per-row keyed RNG.
+        - Else -> use provided Generator gen (required).
+        """
+        span = np.maximum(hi - lo, 0.0)        
+        if keyed_info is None:
+            u = gen.random(n)
+        else: 
+            u = np.empty(n, dtype=float)
+            base_seed = int(keyed_info["base_seed"])
+            aug_index = int(keyed_info["aug_index"])
+            parents = np.asarray(keyed_info["parent_indices"], dtype=np.int64)
+            occ = np.asarray(keyed_info["occurrence_ranks"], dtype=np.int64)
+            for i in range(n):
+                rng = keyed_rng(
+                    base_seed, 
+                    # this ensures variation for multiple parameter sampled in same augmetnation
+                    aug_index * 2 + additional_key, 
+                    int(parents[i]), 
+                    int(occ[i])
+                )
+                u[i] = rng.random()
+        return lo + u * span
+
     def _add_augmentation_metadata(self, df: pd.DataFrame, params: Dict[str, np.ndarray]) -> pd.DataFrame:
         df["_aug_type"] = self.name
         for key, value in params.items():
@@ -178,8 +213,7 @@ class RotationAug(BaseAugmentation):
         schema: BBoxSchema,
         fov_h: Union[int, np.ndarray] = 1080,
         fov_w: Union[int, np.ndarray] = 1080,
-    ) -> Tuple[pd.DataFrame, np.ndarray]:
-        
+    ) -> Tuple[pd.DataFrame, np.ndarray]:        
         limits = self._compute_rotation_limits(
             xmin=df[schema.x_min].to_numpy(float),
             ymin=df[schema.y_min].to_numpy(float),
@@ -196,39 +230,17 @@ class RotationAug(BaseAugmentation):
 
     def sample_params(
         self,
-        gen: Generator,                         # kept for API symmetry; unused by keyed mode
         limits_sel: pd.DataFrame,
         *,
+        gen: Optional[Generator] = None,
         keyed_info: Optional[Dict[str, np.ndarray | int]] = None
     ) -> Dict[str, np.ndarray]:
-        """
-        If keyed_info is provided, use keyed RNG per (seed, aug_index, parent, occurrence).
-        keyed_info must contain:
-           - base_seed: int
-           - aug_index: int
-           - parent_indices: np.ndarray[int]  (src_idx for these rows)
-           - occurrence_ranks: np.ndarray[int] (0,1,2,...) per parent
-        """
         lo = limits_sel["min_angle"].to_numpy(float)
         hi = limits_sel["max_angle"].to_numpy(float)
         n = len(limits_sel)
-
-        if keyed_info is None:
-            # fallback: plain RNG
-            u = gen.random(n)
-        else:
-            base_seed = int(keyed_info["base_seed"])       # type: ignore
-            aug_index = int(keyed_info["aug_index"])       # type: ignore
-            parents = np.asarray(keyed_info["parent_indices"], dtype=np.int64)     # type: ignore
-            occ = np.asarray(keyed_info["occurrence_ranks"], dtype=np.int64)       # type: ignore
-            # one uniform per row using keyed RNG
-            u = np.empty(n, dtype=float)
-            for i in range(n):
-                rng = keyed_rng(base_seed, aug_index, int(parents[i]), int(occ[i]))
-                u[i] = rng.random()
-
-        angle = lo + u * np.maximum(hi - lo, 0.0)
-        return {"_sampled_angle": angle}
+        return {'_sampled_angle': self._sample_between(
+            n=n, lo=lo, hi=hi,gen=gen, keyed_info=keyed_info
+        )}
 
     def materialize(
         self,
@@ -302,38 +314,26 @@ class TranslationAug(BaseAugmentation):
 
     def sample_params(
         self,
-        gen: Generator,                         # kept for API symmetry; unused by keyed mode
         limits_sel: pd.DataFrame,
         *,
+        gen: Optional[Generator] = None,
         keyed_info: Optional[Dict[str, np.ndarray | int]] = None
     ) -> Dict[str, np.ndarray]:
 
+        sampled = {}
         n = len(limits_sel)
         lo_dx, hi_dx = limits_sel["dx_min"].to_numpy(float), limits_sel["dx_max"].to_numpy(float)
         lo_dy, hi_dy = limits_sel["dy_min"].to_numpy(float), limits_sel["dy_max"].to_numpy(float)
 
-        if keyed_info is None:
-            u_x = gen.random(n)
-            u_y = gen.random(n)
-        else:
-            base_seed = int(keyed_info["base_seed"])       # type: ignore
-            aug_index = int(keyed_info["aug_index"])       # type: ignore
-            parents = np.asarray(keyed_info["parent_indices"], dtype=np.int64)     # type: ignore
-            occ = np.asarray(keyed_info["occurrence_ranks"], dtype=np.int64)       # type: ignore
+        sampled['_sampled_dx'] = self._sample_between(
+            n=n, lo=lo_dx, hi=hi_dx, 
+            gen=gen, keyed_info=keyed_info, additional_key=0)
+        sampled['_sampled_dy'] = self._sample_between(
+            n=n, lo=lo_dy, hi=hi_dy, 
+            gen=gen, keyed_info=keyed_info, additional_key=1)
 
-            # Different salt for x/y by perturbing aug_index (keeps API compact)
-            u_x = np.empty(n, dtype=float)
-            u_y = np.empty(n, dtype=float)
-            for i in range(n):
-                rngx = keyed_rng(base_seed, aug_index * 2 + 0, int(parents[i]), int(occ[i]))
-                rngy = keyed_rng(base_seed, aug_index * 2 + 1, int(parents[i]), int(occ[i]))
-                u_x[i] = rngx.random()
-                u_y[i] = rngy.random()
-
-        dx = lo_dx + u_x * np.maximum(hi_dx - lo_dx, 0.0)
-        dy = lo_dy + u_y * np.maximum(hi_dy - lo_dy, 0.0)
-        return {"_sampled_dx": dx, "_sampled_dy": dy}
-
+        return sampled
+    
     def materialize(
         self, schema: BBoxSchema, source_rows: pd.DataFrame,
         params: Dict[str, np.ndarray], rounding: str = "round"
@@ -522,7 +522,10 @@ def run_augmentations(
             "parent_indices": src_idx.astype(np.int64),
             "occurrence_ranks": occ_ranks.astype(np.int64),
         }
-        params = aug.sample_params(None, sel_limits, keyed_info=keyed_info)  # gen is unused in keyed mode
+        params = aug.sample_params(
+            gen=None, # gen is unused in keyed mode
+            limits_sel=sel_limits, 
+            keyed_info=keyed_info)  
 
         # materialize
         src_rows = metadata_sorted.iloc[src_idx].reset_index(drop=True)
