@@ -344,10 +344,6 @@ class AbstractTrainer(ABC):
         return self._batch_size
     
     @property
-    def epochs(self):
-        return self._epoch
-    
-    @property
     def starting_epoch(self):
         return self._starting_epoch
     
@@ -394,6 +390,13 @@ class AbstractTrainer(ABC):
     @property
     def val_metrics(self):
         return self._val_metrics
+    
+    @property
+    def train_epochs(self):
+        """
+        Returns the number of training epochs.
+        """
+        return self._train_for_epochs
     
     """
     Setters for best model and best loss and early stop counter
