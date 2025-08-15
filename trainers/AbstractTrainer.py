@@ -392,7 +392,7 @@ class AbstractTrainer(ABC):
         return self._val_metrics
     
     @property
-    def train_epochs(self):
+    def train_for_epochs(self):
         """
         Returns the number of training epochs.
         """
