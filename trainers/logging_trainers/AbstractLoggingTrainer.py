@@ -10,6 +10,7 @@ from ..AbstractTrainer import AbstractTrainer
 from ...metrics.AbstractMetrics import AbstractMetrics
 from ...callbacks.AbstractCallback import AbstractCallback
 from ...logging import MlflowLogger
+from ...losses.AbstractLoss import AbstractLoss
 
 path_type = Union[pathlib.Path, str]
 
@@ -193,6 +194,22 @@ class AbstractLoggingTrainer(AbstractTrainer):
         # 9A) Invoke the on_train_end method of the logger
         if hasattr(logger, "on_train_end"):
             logger.on_train_end()
+    
+    def _get_loss_name(
+            self, 
+            loss_fn: Union[torch.nn.Module, AbstractLoss]
+        ) -> str:
+        """
+        Helper method to get the name of the loss function.
+        """
+        if isinstance(loss_fn, AbstractLoss) and hasattr(loss_fn, "metric_name"):
+            return loss_fn.metric_name
+        elif isinstance(loss_fn, torch.nn.Module):
+            return type(loss_fn).__name__
+        else:
+            raise TypeError(
+                "Expected loss_fn to be either a torch.nn.Module or an AbstractLoss instance."
+            )    
 
     @abstractmethod
     def save_model(
