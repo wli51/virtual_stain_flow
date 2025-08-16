@@ -110,30 +110,30 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         
     def _train_discriminator_step(
         self,
-        inputs: torch.tensor, 
-        targets: torch.tensor,
+        input: torch.tensor, 
+        target: torch.tensor,
         pred: Optional[torch.tensor] = None,
     ) -> Dict[str, np.float]:
         """
         Internal helper method to perform a single training step
-        for the discriminator. Expects the inputs and targets
+        for the discriminator. Expects the input and target
         to be already moved to the device. If the predicted images
         are not provided, they are generated using the generator.
         """
         if self.epoch % self.discriminator_update_freq == 0:            
 
             if pred is None:
-                pred = self._generator(inputs)
+                pred = self._generator(input)
 
             self._discriminator_optimizer.zero_grad()
 
             # the discriminator is trained on real and fake images stacked
-            # with the real inputs, this results in (2* B, C, H, W) tensors
+            # with the real input, this results in (2* B, C, H, W) tensors
             real_target_input_stack = torch.cat(
-                (targets, inputs), dim=1)            
+                (target, input), dim=1)            
             # here the predicted images are the GAN "fake" images
             fake_target_input_stack = torch.cat(
-                (pred, inputs), dim=1)
+                (pred, input), dim=1)
             
             # discriminator predicts the prob of given stack being real
             discriminator_real_as_real_prob = self._discriminator(
@@ -170,31 +170,31 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
 
     def _train_generator_step(
         self,
-        inputs: torch.tensor,
-        targets: torch.tensor,
+        input: torch.tensor,
+        target: torch.tensor,
         pred: Optional[torch.tensor] = None,
     ) -> Dict[str, np.float]:
         """
         Internal helper method to perform a single training step
-        for the generator. Expects the inputs and targets
+        for the generator. Expects the input and target
         to be already moved to the device.
         """
 
         if self.epoch % self.generator_update_freq == 0:
 
             if pred is None:
-                pred = self._generator(inputs)
+                pred = self._generator(input)
 
             self._generator_optimizer.zero_grad()
             fake_as_real_prob = self._discriminator(
-                torch.cat((pred, inputs), dim=1)
+                torch.cat((pred, input), dim=1)
             )
             
             total_loss = torch.tensor(0.0, device=self.device)
             
             for loss_fn in self._generator_reconstruction_loss_fn:
                 loss_fn_name = self._get_loss_name(loss_fn)
-                _loss = loss_fn(targets, pred)
+                _loss = loss_fn(target, pred)
                 total_loss += _loss
                 self._last_generator_losses[loss_fn_name] = \
                     _loss.detach().item()
@@ -212,23 +212,23 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         
     def train_step(
         self,
-        inputs: torch.tensor,
-        targets: torch.tensor,
+        input: torch.tensor,
+        target: torch.tensor,
     ):
-        inputs, targets = inputs.to(self.device), targets.to(self.device)
+        input, target = input.to(self.device), target.to(self.device)
 
         # generation forward pass is always needed regardless of
         # whether the generator is updated. 
-        predicted_images = self._generator(inputs)
+        predicted_images = self._generator(input)
 
         all_loss_dict = {}
 
         disc_loss_dict = self._train_discriminator_step(
-            inputs=inputs, targets=targets, pred=predicted_images
+            input=input, target=target, pred=predicted_images
         )
 
         gen_loss_dict = self._train_generator_step(
-            inputs=inputs, targets=targets, pred=predicted_images
+            input=input, target=target, pred=predicted_images
         )
 
         return {
@@ -238,10 +238,10 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
     
     def evaluate_step(
         self,
-        inputs: torch.tensor,
-        targets: torch.tensor,
+        input: torch.tensor,
+        target: torch.tensor,
     ):
-        inputs, targets = inputs.to(self.device), targets.to(self.device)
+        input, target = input.to(self.device), target.to(self.device)
 
         self._generator.eval()
         self._discriminator.eval()
@@ -250,12 +250,12 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
 
         with torch.no_grad():
             
-            pred = self._generator(inputs)
+            pred = self._generator(input)
 
             real_target_input_stack = torch.cat(
-                (targets, inputs), dim=1)
+                (target, input), dim=1)
             fake_target_input_stack = torch.cat(
-                (pred, inputs), dim=1)
+                (pred, input), dim=1)
             discriminator_real_as_real_prob = self._discriminator(
                 real_target_input_stack)
             discriminator_fake_as_real_prob = self._discriminator(
@@ -286,11 +286,11 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             
             for loss_fn in self._generator_reconstruction_loss_fn:
                 loss_fn_name = self._get_loss_name(loss_fn)
-                _loss = loss_fn(targets, pred)
+                _loss = loss_fn(target, pred)
                 all_loss_dict[loss_fn_name] = _loss.item()
             
             discriminator_fake_as_real_prob = self._discriminator(
-                torch.cat((pred, inputs), dim=1)
+                torch.cat((pred, input), dim=1)
             )
             _gen_adv_loss = self._generator_adversarial_loss_fn(
                 discriminator_fake_as_real_prob
@@ -300,7 +300,7 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             )] = _gen_adv_loss.item()
             
             for _, metric in self.metrics.items():
-                metric.update(pred, targets, validation=True)
+                metric.update(pred, target, validation=True)
 
             return all_loss_dict
         
@@ -313,8 +313,8 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         self._discriminator.train()
 
         all_unagg_loss_dict = defaultdict(list)
-        for inputs, targets in self._train_loader:
-            batch_loss = self.train_step(inputs, targets)
+        for input, target in self._train_loader:
+            batch_loss = self.train_step(input, target)
             for key, value in batch_loss.items():
                 all_unagg_loss_dict[key].append(value)
 
@@ -333,8 +333,8 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         self._discriminator.eval()
 
         all_unagg_loss_dict = defaultdict(list)
-        for inputs, targets in self._val_loader:
-            batch_loss = self.evaluate_step(inputs, targets)
+        for input, target in self._val_loader:
+            batch_loss = self.evaluate_step(input, target)
             for key, value in batch_loss.items():
                 all_unagg_loss_dict[key].append(value)
 
