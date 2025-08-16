@@ -1,11 +1,12 @@
 import pathlib
 from collections import defaultdict
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence, Union, Dict
 
+import numpy as np
 import torch
-from torch.utils.data import DataLoader, random_split
 
 from .AbstractLoggingTrainer import AbstractLoggingTrainer
+from ...losses.AbstractLoss import AbstractLoss
 from ...losses.wgan_losses import (
     GradientPenaltyLoss, 
     AdveserialGeneratorLoss,
@@ -53,13 +54,28 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             raise TypeError(
                 "generator_reconstruction_loss_fn must be a torch.nn.Module or a list of torch.nn.Modules."
             )
-        self._generator_adversarial_loss_fn = generator_adversarial_loss_fn
+        
+        if generator_adversarial_loss_fn is None:
+            self._generator_adversarial_loss_fn = NoAdversarialGeneratorLoss()
+        elif isinstance(generator_adversarial_loss_fn, torch.nn.Module):
+            self._generator_adversarial_loss_fn = generator_adversarial_loss_fn
+        else:
+            raise TypeError(
+                "generator_adversarial_loss_fn must be a torch.nn.Module or None."
+            )
 
         self._discriminator = discriminator
         self._discriminator_optimizer = discriminator_optimizer
         self._discriminator_loss_fn = discriminator_loss_fn
 
-        self._gradient_penalty_loss_fn = gradient_penalty_loss_fn
+        if gradient_penalty_loss_fn is None:
+            self._gradient_penalty_loss_fn = NoGradientPenaltyLoss()
+        elif isinstance(gradient_penalty_loss_fn, torch.nn.Module):
+            self._gradient_penalty_loss_fn = gradient_penalty_loss_fn
+        else:
+            raise TypeError(
+                "gradient_penalty_loss_fn must be a torch.nn.Module or None."
+            )
 
         if not(generator_update_freq == 1) or \
             not (discriminator_update_freq == 1):
@@ -76,15 +92,20 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         # during epochs they are not updated. Alternative strategy would
         # be to modify the logging system to only log loss values during
         # updates but that would introduce additional complexity. 
-        self._last_discriminator_loss = torch.tensor(
-            0.0, device=self.device).detach()
-        self._last_gradient_penalty_loss = torch.tensor(
-            0.0, device=self.device).detach()
-        self._last_generator_adversarial_loss = torch.tensor(
-            0.0, device=self.device).detach()
-        self._last_generator_reconstruction_loss = {
-            loss_fn_name: torch.tensor(0.0, device=self.device).detach()
-            for loss_fn_name in self.generator_loss_name
+        
+        self._last_discriminator_losses = {
+            self._get_loss_name(self._discriminator_loss_fn): 
+            torch.tensor(0.0, device=self.device).detach(),
+            self._get_loss_name(self._gradient_penalty_loss_fn):
+            torch.tensor(0.0, device=self.device).detach(),
+        }
+
+        self._last_generator_losses = {
+            **{self._get_loss_name(loss_fn): 
+               torch.tensor(0.0, device=self.device).detach()
+            for loss_fn in self._generator_reconstruction_loss_fn},
+            self._get_loss_name(self._generator_adversarial_loss_fn): 
+                torch.tensor(0.0, device=self.device).detach(),
         }
         
     def _train_discriminator_step(
@@ -92,103 +113,102 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         inputs: torch.tensor, 
         targets: torch.tensor,
         pred: Optional[torch.tensor] = None,
-    ):
+    ) -> Dict[str, np.float]:
         """
         Internal helper method to perform a single training step
         for the discriminator. Expects the inputs and targets
         to be already moved to the device. If the predicted images
         are not provided, they are generated using the generator.
         """
-        if pred is None:
-            pred = self._generator(inputs)
+        if self.epoch % self.discriminator_update_freq == 0:            
 
-        self._discriminator_optimizer.zero_grad()
+            if pred is None:
+                pred = self._generator(inputs)
 
-        # the discriminator is trained on real and fake images stacked
-        # with the real inputs, this results in (2* B, C, H, W) tensors
-        real_target_input_stack = torch.cat(
-            (targets, inputs), dim=1)            
-        # here the predicted images are the GAN "fake" images
-        fake_target_input_stack = torch.cat(
-            (pred, inputs), dim=1)
-        
-        # discriminator predicts the prob of given stack being real
-        discriminator_real_as_real_prob = self._discriminator(
-            real_target_input_stack)
-        discriminator_fake_as_real_prob = self._discriminator(
-            fake_target_input_stack)
+            self._discriminator_optimizer.zero_grad()
 
-        discriminator_loss = self._discriminator_loss_fn(
-            discriminator_real_as_real_prob,
-            discriminator_fake_as_real_prob, 
-        )
+            # the discriminator is trained on real and fake images stacked
+            # with the real inputs, this results in (2* B, C, H, W) tensors
+            real_target_input_stack = torch.cat(
+                (targets, inputs), dim=1)            
+            # here the predicted images are the GAN "fake" images
+            fake_target_input_stack = torch.cat(
+                (pred, inputs), dim=1)
+            
+            # discriminator predicts the prob of given stack being real
+            discriminator_real_as_real_prob = self._discriminator(
+                real_target_input_stack)
+            discriminator_fake_as_real_prob = self._discriminator(
+                fake_target_input_stack)
 
-        if self._gradient_penalty_loss_fn is not None:
-            gp_loss = self._gradient_penalty_loss_fn(
-                real_target_input_stack,
-                fake_target_input_stack,
+            discriminator_loss = self._discriminator_loss_fn(
+                discriminator_real_as_real_prob,
+                discriminator_fake_as_real_prob, 
             )
-        else:
-            gp_loss = torch.tensor(0.0, device=self.device)
 
-        total_discriminator_loss =  discriminator_loss + gp_loss
-        total_discriminator_loss.backward()
-        self._discriminator_optimizer.step()
+            if self._gradient_penalty_loss_fn is not None:
+                gp_loss = self._gradient_penalty_loss_fn(
+                    real_target_input_stack,
+                    fake_target_input_stack,
+                )
+            else:
+                gp_loss = torch.tensor(0.0, device=self.device)
 
-        # update the last discriminator loss and gradient penalty loss
-        self._last_discriminator_loss = discriminator_loss.detach()
-        self._last_gradient_penalty_loss = gp_loss.detach()
+            total_discriminator_loss =  discriminator_loss + gp_loss
+            total_discriminator_loss.backward()
+            self._discriminator_optimizer.step()
 
-        return {
-            self.discriminator_loss_name:
-                self._last_discriminator_loss.item(),
-            self.gradient_penalty_loss_name:
-                self._last_gradient_penalty_loss.item(),
-        }
+            # update the last discriminator loss and gradient penalty loss
+            self._last_discriminator_losses[
+                self._get_loss_name(self._discriminator_loss_fn)] = \
+                discriminator_loss.detach().item()
+            self._last_discriminator_losses[
+                self._get_loss_name(self._gradient_penalty_loss_fn)] = \
+                gp_loss.detach().item()
+
+        return self._last_discriminator_losses
 
     def _train_generator_step(
         self,
         inputs: torch.tensor,
         targets: torch.tensor,
         pred: Optional[torch.tensor] = None,
-    ):
+    ) -> Dict[str, np.float]:
         """
         Internal helper method to perform a single training step
         for the generator. Expects the inputs and targets
         to be already moved to the device.
         """
-        if pred is None:
-            pred = self._generator(inputs)
 
-        self._generator_optimizer.zero_grad()
-        fake_as_real_prob = self._discriminator(
-            torch.cat((pred, inputs), dim=1)
-        )
-        
-        total_loss = torch.tensor(0.0, device=self.device)
-        
-        for loss_fn_name, loss_fn in zip(
-            self.generator_reconstruction_loss_name,
-            self._generator_reconstruction_loss_fn
-        ):
+        if self.epoch % self.generator_update_freq == 0:
+
+            if pred is None:
+                pred = self._generator(inputs)
+
+            self._generator_optimizer.zero_grad()
+            fake_as_real_prob = self._discriminator(
+                torch.cat((pred, inputs), dim=1)
+            )
             
-            _loss = loss_fn(targets, pred)
-            total_loss += _loss
-            self._last_generator_reconstruction_loss[loss_fn_name] = _loss.detach()
+            total_loss = torch.tensor(0.0, device=self.device)
+            
+            for loss_fn in self._generator_reconstruction_loss_fn:
+                loss_fn_name = self._get_loss_name(loss_fn)
+                _loss = loss_fn(targets, pred)
+                total_loss += _loss
+                self._last_generator_losses[loss_fn_name] = \
+                    _loss.detach().item()
 
-        _loss = self._generator_adversarial_loss_fn(fake_as_real_prob)
-        total_loss += _loss
-        self._last_generator_adversarial_loss = _loss.detach()
+            _adv_loss = self._generator_adversarial_loss_fn(fake_as_real_prob)
+            total_loss += _adv_loss
+            self._last_generator_losses[
+                self._get_loss_name(self._generator_adversarial_loss_fn)] = \
+                _adv_loss.detach().item()
 
-        total_loss.backward()
-        self._generator_optimizer.step()        
+            total_loss.backward()
+            self._generator_optimizer.step()        
 
-        return {
-            **{name: loss.item() for name, loss in \
-               self._last_generator_reconstruction_loss.items()},
-            self.generator_adversarial_loss_name:
-                self._last_generator_adversarial_loss.item(),
-        }
+        return self._last_generator_losses
         
     def train_step(
         self,
@@ -203,33 +223,18 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
 
         all_loss_dict = {}
 
-        if self.epoch % self.discriminator_update_freq:
-            loss_dict = self._train_discriminator_step(
-                inputs=inputs, targets=targets, pred=predicted_images
-            )
-            all_loss_dict.update(loss_dict)
-        else:
-            all_loss_dict.update({
-                self.discriminator_loss_name:
-                    self._last_discriminator_loss.item(),
-                self.gradient_penalty_loss_name:
-                    self._last_gradient_penalty_loss.item(),
-            })
+        disc_loss_dict = self._train_discriminator_step(
+            inputs=inputs, targets=targets, pred=predicted_images
+        )
 
-        if self.epoch % self.generator_update_freq:
-            loss_dict = self._train_generator_step(
-                inputs=inputs, targets=targets, pred=predicted_images
-            )
-            all_loss_dict.update(loss_dict)
-        else:
-            all_loss_dict.update({
-                name: loss.item() for name, loss in \
-                    self._last_generator_reconstruction_loss.items()
-            })
-            all_loss_dict[self.generator_adversarial_loss_name] = \
-                self._last_generator_adversarial_loss.item()
+        gen_loss_dict = self._train_generator_step(
+            inputs=inputs, targets=targets, pred=predicted_images
+        )
 
-        return all_loss_dict
+        return {
+            **disc_loss_dict,
+            **gen_loss_dict,
+        }
     
     def evaluate_step(
         self,
@@ -261,7 +266,9 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
                 discriminator_fake_as_real_prob, 
             )
             
-            all_loss_dict[self.discriminator_loss_name] = \
+            all_loss_dict[self._get_loss_name(
+                self._discriminator_loss_fn
+            )] = \
                 discriminator_loss.item()
 
             if self._gradient_penalty_loss_fn is not None:
@@ -272,16 +279,26 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             else:
                 gp_loss = torch.tensor(0.0, device=self.device)
                 
-            all_loss_dict[self.gradient_penalty_loss_name] = \
+            all_loss_dict[self._get_loss_name(
+                self._gradient_penalty_loss_fn
+            )] = \
                 gp_loss.item()
-
-            generator_loss = self._generator_reconstruction_loss_fn(
-                discriminator_fake_as_real_prob, targets, pred
+            
+            for loss_fn in self._generator_reconstruction_loss_fn:
+                loss_fn_name = self._get_loss_name(loss_fn)
+                _loss = loss_fn(targets, pred)
+                all_loss_dict[loss_fn_name] = _loss.item()
+            
+            discriminator_fake_as_real_prob = self._discriminator(
+                torch.cat((pred, inputs), dim=1)
             )
-
-            all_loss_dict[self.generator_loss_name] = \
-                generator_loss.item()
-
+            _gen_adv_loss = self._generator_adversarial_loss_fn(
+                discriminator_fake_as_real_prob
+            )
+            all_loss_dict[self._get_loss_name(
+                self._generator_adversarial_loss_fn
+            )] = _gen_adv_loss.item()
+            
             for _, metric in self.metrics.items():
                 metric.update(pred, targets, validation=True)
 
@@ -350,24 +367,34 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
     def discriminator_update_freq(self):
         return self._discriminator_update_freq
     
-    @property
-    def generator_reconstruction_loss_name(self):
-        return [
-            type(loss_fn).__name__ for loss_fn in self._generator_reconstruction_loss_fn
-        ]
+class NoGradientPenaltyLoss(AbstractLoss):
+
+    def __init__(
+        self
+    ):
+        super().__init__("NoGradientPenaltyLoss")
+
+    def forward(
+        self,
+        **kwargs
+    ):
+        """
+        No-op for gradient penalty loss when not used.
+        """
+        return torch.tensor(0.0, device=self.trainer.device)
     
-    @property
-    def generator_adversarial_loss_name(self):
-        return type(self._generator_adversarial_loss_fn).__name__ \
-            if self._generator_adversarial_loss_fn is not None else \
-                "NoGeneratorAdversarialLoss"
-    
-    @property
-    def discriminator_loss_name(self):
-        return type(self._discriminator_loss_fn).__name__
-    
-    @property
-    def gradient_penalty_loss_name(self):
-        return type(self._gradient_penalty_loss_fn).__name__ \
-            if self._gradient_penalty_loss_fn is not None else \
-                "NoGradientPenaltyLoss"
+class NoAdversarialGeneratorLoss(AbstractLoss):
+
+    def __init__(
+        self
+    ):
+        super().__init__("NoAdversarialGeneratorLoss")
+
+    def forward(
+        self,
+        **kwargs
+    ):
+        """
+        No-op for adversarial generator loss when not used.
+        """
+        return torch.tensor(0.0, device=self.trainer.device)
