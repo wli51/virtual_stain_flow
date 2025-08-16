@@ -12,6 +12,7 @@ from ...losses.wgan_losses import (
     AdveserialGeneratorLoss,
     WassersteinDiscriminatorLoss 
 )
+from ...losses.loss_item_group import LossItem, LossGroup
 
 path_type = Union[pathlib.Path, str]
 """
@@ -47,35 +48,66 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
                 raise TypeError(
                     "All elements in generator_reconstruction_loss_fn must be torch.nn.Modules."
                 )
-            self._generator_reconstruction_loss_fn = generator_reconstruction_loss_fn
         elif isinstance(generator_reconstruction_loss_fn, torch.nn.Module):
-            self._generator_reconstruction_loss_fn = [generator_reconstruction_loss_fn]
+            generator_reconstruction_loss_fn = [generator_reconstruction_loss_fn]
         else:
             raise TypeError(
                 "generator_reconstruction_loss_fn must be a torch.nn.Module or a list of torch.nn.Modules."
             )
         
         if generator_adversarial_loss_fn is None:
-            self._generator_adversarial_loss_fn = NoAdversarialGeneratorLoss()
-        elif isinstance(generator_adversarial_loss_fn, torch.nn.Module):
-            self._generator_adversarial_loss_fn = generator_adversarial_loss_fn
-        else:
+            generator_adversarial_loss_fn = NoAdversarialGeneratorLoss()
+        elif not isinstance(generator_adversarial_loss_fn, torch.nn.Module):
             raise TypeError(
                 "generator_adversarial_loss_fn must be a torch.nn.Module or None."
             )
+        
+        self.gen_loss_group = LossGroup(
+            "generator_losses",
+            [
+                *[LossItem(module=loss_fn, args=("target", "pred"), weight=1.0)
+                 for loss_fn in generator_reconstruction_loss_fn],
+                LossItem(
+                    module=generator_adversarial_loss_fn,
+                    args=("discriminator_fake_as_real_prob",),
+                    weight=1.0)
+            ]
+        )
 
         self._discriminator = discriminator
         self._discriminator_optimizer = discriminator_optimizer
-        self._discriminator_loss_fn = discriminator_loss_fn
+
+        if not isinstance(discriminator_loss_fn, torch.nn.Module):
+            raise TypeError(
+                "discriminator_loss_fn must be a torch.nn.Module."
+            )
 
         if gradient_penalty_loss_fn is None:
-            self._gradient_penalty_loss_fn = NoGradientPenaltyLoss()
-        elif isinstance(gradient_penalty_loss_fn, torch.nn.Module):
-            self._gradient_penalty_loss_fn = gradient_penalty_loss_fn
-        else:
+            gradient_penalty_loss_fn = NoGradientPenaltyLoss()
+        elif not isinstance(gradient_penalty_loss_fn, torch.nn.Module):
             raise TypeError(
                 "gradient_penalty_loss_fn must be a torch.nn.Module or None."
             )
+        
+        self.disc_loss_group = LossGroup(
+            "discriminator_losses",
+            [
+                LossItem(
+                    module=discriminator_loss_fn,
+                    args=("discriminator_real_as_real_prob", 
+                          "discriminator_fake_as_real_prob"),
+                    weight=1.0
+                ),
+                LossItem(
+                    module=gradient_penalty_loss_fn,
+                    args=("real_target_input_stack", 
+                          "fake_target_input_stack",
+                          "discriminator"),
+                    weight=1.0,
+                    compute_at=('train',) # only compute during training
+                )
+            ]
+        )
 
         if not(generator_update_freq == 1) or \
             not (discriminator_update_freq == 1):
@@ -92,27 +124,16 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         # during epochs they are not updated. Alternative strategy would
         # be to modify the logging system to only log loss values during
         # updates but that would introduce additional complexity. 
-        
+        zero = torch.tensor(0.0, device=self.device).detach().item()
         self._last_discriminator_losses = {
-            self._get_loss_name(self._discriminator_loss_fn): 
-            torch.tensor(0.0, device=self.device).detach(),
-            self._get_loss_name(self._gradient_penalty_loss_fn):
-            torch.tensor(0.0, device=self.device).detach(),
-        }
-
+            k: zero for k in self.disc_loss_group.keys}
         self._last_generator_losses = {
-            **{self._get_loss_name(loss_fn): 
-               torch.tensor(0.0, device=self.device).detach()
-            for loss_fn in self._generator_reconstruction_loss_fn},
-            self._get_loss_name(self._generator_adversarial_loss_fn): 
-                torch.tensor(0.0, device=self.device).detach(),
-        }
+            k: zero for k in self.gen_loss_group.keys}
         
     def _train_discriminator_step(
         self,
         input: torch.tensor, 
         target: torch.tensor,
-        pred: Optional[torch.tensor] = None,
     ) -> Dict[str, np.float]:
         """
         Internal helper method to perform a single training step
@@ -122,57 +143,46 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         """
         if self.epoch % self.discriminator_update_freq == 0:            
 
-            if pred is None:
-                pred = self._generator(input)
-
+            self._discriminator.train()
             self._discriminator_optimizer.zero_grad()
 
+            with torch.no_grad():
+                pred = self._generator(input)
+
             # the discriminator is trained on real and fake images stacked
-            # with the real input, this results in (2* B, C, H, W) tensors
-            real_target_input_stack = torch.cat(
-                (target, input), dim=1)            
-            # here the predicted images are the GAN "fake" images
-            fake_target_input_stack = torch.cat(
-                (pred, input), dim=1)
+            # with the real input, this results in (B, IN_C + TARGET_C, H, W) tensors
+            real_target_input_stack = torch.cat([target, input], dim=1)
+            fake_target_input_stack = torch.cat([pred, input], dim=1)
             
             # discriminator predicts the prob of given stack being real
             discriminator_real_as_real_prob = self._discriminator(
                 real_target_input_stack)
             discriminator_fake_as_real_prob = self._discriminator(
                 fake_target_input_stack)
+            
+            ctx = {
+                'real_target_input_stack': real_target_input_stack,
+                'fake_target_input_stack': fake_target_input_stack,
+                'discriminator_real_as_real_prob': discriminator_real_as_real_prob,
+                'discriminator_fake_as_real_prob': discriminator_fake_as_real_prob,
+                'discriminator': self._discriminator
+            }
 
-            discriminator_loss = self._discriminator_loss_fn(
-                discriminator_real_as_real_prob,
-                discriminator_fake_as_real_prob, 
-            )
-
-            if self._gradient_penalty_loss_fn is not None:
-                gp_loss = self._gradient_penalty_loss_fn(
-                    real_target_input_stack,
-                    fake_target_input_stack,
-                )
-            else:
-                gp_loss = torch.tensor(0.0, device=self.device)
-
-            total_discriminator_loss =  discriminator_loss + gp_loss
-            total_discriminator_loss.backward()
+            total_disc_loss, logs = self.disc_loss_group(ctx, phase='train')
+            total_disc_loss.backward()
             self._discriminator_optimizer.step()
 
-            # update the last discriminator loss and gradient penalty loss
-            self._last_discriminator_losses[
-                self._get_loss_name(self._discriminator_loss_fn)] = \
-                discriminator_loss.detach().item()
-            self._last_discriminator_losses[
-                self._get_loss_name(self._gradient_penalty_loss_fn)] = \
-                gp_loss.detach().item()
+            self._last_discriminator_losses = logs
 
-        return self._last_discriminator_losses
+            return logs
+        
+        else:
+            return self._last_discriminator_losses
 
     def _train_generator_step(
         self,
         input: torch.tensor,
         target: torch.tensor,
-        pred: Optional[torch.tensor] = None,
     ) -> Dict[str, np.float]:
         """
         Internal helper method to perform a single training step
@@ -182,33 +192,33 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
 
         if self.epoch % self.generator_update_freq == 0:
 
-            if pred is None:
-                pred = self._generator(input)
-
+            self._generator.train()
             self._generator_optimizer.zero_grad()
-            fake_as_real_prob = self._discriminator(
-                torch.cat((pred, input), dim=1)
+            
+            pred = self._generator(input)
+
+            fake_target_input_stack = torch.cat(
+                (pred, input), dim=1)    
+            discriminator_fake_as_real_prob = self._discriminator(
+                fake_target_input_stack
             )
+
+            ctx = {
+                'target': target,
+                'pred': pred,
+                'discriminator_fake_as_real_prob': discriminator_fake_as_real_prob
+            }
+
+            total_gen_loss, logs = self.gen_loss_group(ctx, phase='train')
+            total_gen_loss.backward()
+            self._generator_optimizer.step()
             
-            total_loss = torch.tensor(0.0, device=self.device)
-            
-            for loss_fn in self._generator_reconstruction_loss_fn:
-                loss_fn_name = self._get_loss_name(loss_fn)
-                _loss = loss_fn(target, pred)
-                total_loss += _loss
-                self._last_generator_losses[loss_fn_name] = \
-                    _loss.detach().item()
+            self._last_generator_losses = logs
 
-            _adv_loss = self._generator_adversarial_loss_fn(fake_as_real_prob)
-            total_loss += _adv_loss
-            self._last_generator_losses[
-                self._get_loss_name(self._generator_adversarial_loss_fn)] = \
-                _adv_loss.detach().item()
-
-            total_loss.backward()
-            self._generator_optimizer.step()        
-
-        return self._last_generator_losses
+            return logs
+        
+        else:
+            return self._last_generator_losses
         
     def train_step(
         self,
@@ -217,18 +227,12 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
     ):
         input, target = input.to(self.device), target.to(self.device)
 
-        # generation forward pass is always needed regardless of
-        # whether the generator is updated. 
-        predicted_images = self._generator(input)
-
-        all_loss_dict = {}
-
         disc_loss_dict = self._train_discriminator_step(
-            input=input, target=target, pred=predicted_images
+            input=input, target=target
         )
 
         gen_loss_dict = self._train_generator_step(
-            input=input, target=target, pred=predicted_images
+            input=input, target=target
         )
 
         return {
@@ -246,8 +250,6 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         self._generator.eval()
         self._discriminator.eval()
 
-        all_loss_dict = {}
-
         with torch.no_grad():
             
             pred = self._generator(input)
@@ -260,49 +262,25 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
                 real_target_input_stack)
             discriminator_fake_as_real_prob = self._discriminator(
                 fake_target_input_stack)
-            
-            discriminator_loss = self._discriminator_loss_fn(
-                discriminator_real_as_real_prob,
-                discriminator_fake_as_real_prob, 
-            )
-            
-            all_loss_dict[self._get_loss_name(
-                self._discriminator_loss_fn
-            )] = \
-                discriminator_loss.item()
 
-            if self._gradient_penalty_loss_fn is not None:
-                gp_loss = self._gradient_penalty_loss_fn(
-                    real_target_input_stack,
-                    fake_target_input_stack,
-                )
-            else:
-                gp_loss = torch.tensor(0.0, device=self.device)
-                
-            all_loss_dict[self._get_loss_name(
-                self._gradient_penalty_loss_fn
-            )] = \
-                gp_loss.item()
-            
-            for loss_fn in self._generator_reconstruction_loss_fn:
-                loss_fn_name = self._get_loss_name(loss_fn)
-                _loss = loss_fn(target, pred)
-                all_loss_dict[loss_fn_name] = _loss.item()
-            
-            discriminator_fake_as_real_prob = self._discriminator(
-                torch.cat((pred, input), dim=1)
-            )
-            _gen_adv_loss = self._generator_adversarial_loss_fn(
-                discriminator_fake_as_real_prob
-            )
-            all_loss_dict[self._get_loss_name(
-                self._generator_adversarial_loss_fn
-            )] = _gen_adv_loss.item()
-            
+            _, disc_logs = self.disc_loss_group({
+                'real_target_input_stack': real_target_input_stack,
+                'fake_target_input_stack': fake_target_input_stack,
+                'discriminator_real_as_real_prob': discriminator_real_as_real_prob,
+                'discriminator_fake_as_real_prob': discriminator_fake_as_real_prob,
+                'discriminator': self._discriminator
+                }, phase='eval')
+
+            _, gen_logs = self.gen_loss_group({
+                'target': target,
+                'pred': pred,
+                'discriminator_fake_as_real_prob': discriminator_fake_as_real_prob
+            }, phase='eval')
+                        
             for _, metric in self.metrics.items():
                 metric.update(pred, target, validation=True)
 
-            return all_loss_dict
+            return {**disc_logs, **gen_logs}
         
     def train_epoch(self):
         """
