@@ -10,7 +10,11 @@ Adapted from https://github.com/WayScience/nuclear_speckles_analysis
 class AbstractLoss(nn.Module, ABC):
     """Abstract class for metrics"""
 
-    def __init__(self, metric_name: Optional[str] = None):
+    def __init__(
+            self, 
+            metric_name: Optional[str] = None,
+            device: Optional[torch.device] = None
+        ):
         
         super(AbstractLoss, self).__init__()
 
@@ -19,10 +23,20 @@ class AbstractLoss(nn.Module, ABC):
 
         self._metric_name = metric_name
         self._trainer = None
+        self._device = device
 
     @property
     def trainer(self):
         return self._trainer
+
+    @property
+    def device(self) -> torch.device:
+        if self._device is None:
+            if hasattr(self.trainer, 'device'):
+                return self.trainer.device
+            else:
+                raise ValueError("Device is not set. Please set the device in the trainer or loss.")
+        return self._device
     
     @trainer.setter
     def trainer(self, value):
