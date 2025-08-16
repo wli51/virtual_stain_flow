@@ -84,7 +84,9 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
 
         if gradient_penalty_loss_fn is None:
             gradient_penalty_loss_fn = NoGradientPenaltyLoss()
-        elif not isinstance(gradient_penalty_loss_fn, torch.nn.Module):
+        elif isinstance(gradient_penalty_loss_fn, torch.nn.Module):
+            gradient_penalty_loss_fn.trainer = self # allow access to device
+        else:
             raise TypeError(
                 "gradient_penalty_loss_fn must be a torch.nn.Module or None."
             )
