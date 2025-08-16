@@ -1,10 +1,14 @@
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Mapping, Sequence, Tuple, Union, Optional
+from typing import (
+    Dict, Iterable, List, Mapping, Sequence, Tuple, Union, Optional, Literal
+)
 
 import torch
 import torch.nn as nn
 
 from .AbstractLoss import AbstractLoss
+
+Phase = Literal['train', 'eval']
 
 def _get_loss_name(
         loss_fn: Union[nn.Module, AbstractLoss]
@@ -32,6 +36,8 @@ class LossItem:
     key: Optional[str] = None
     weight: float = 1.0
     enabled: bool = True
+    # default to compute in both phases
+    compute_at: Tuple[Phase, ...] = ('train', 'eval')
 
     def __post_init__(self):
         if self.key is None:
@@ -59,6 +65,15 @@ class LossItem:
             raw = raw.mean()     # standardize to scalar if needed
         return raw, self.weight * raw
     
+    def active(self, phase: Phase) -> bool:
+        """
+        Check if the loss item is active for the given phase.
+        
+        :param phase: The phase to check ('train' or 'eval').
+        :return: True if the loss item is active for the phase, False otherwise.
+        """
+        return self.enabled and (phase in self.compute_at)
+    
 class LossGroup:
     """
     A collection of loss items that can/should be computed together, 
@@ -78,15 +93,28 @@ class LossGroup:
     
     def __call__(
         self, 
-        ctx: Mapping[str, torch.Tensor]
+        ctx: Mapping[str, torch.Tensor],
+        phase: Phase = 'train'
     ) -> Tuple[torch.Tensor, Dict[str, float]]:        
         total = None
         logs: Dict[str, float] = {}
         
         for it in self._items:
+            
+            if not it.active(phase):
+                logs[it.key] = 0.0 # defaults to zero
+                continue
+
             raw, wraw = it.compute(ctx)
             logs[it.key] = float(raw.detach().item())
             total = wraw if total is None else (total + wraw)
+        
+        # Incase at some point all loss items are disabled,
+        # we still want to return a zero tensor for total
+        # as opposed to erroring out
+        if total is None:
+            any_tensor = next(iter(ctx.values()))
+            total = any_tensor.new_tensor(0.0)
             
         return total, logs
     
