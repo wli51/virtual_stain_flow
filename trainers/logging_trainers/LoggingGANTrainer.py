@@ -1,11 +1,16 @@
 import pathlib
 from collections import defaultdict
-from typing import Optional, List, Union
+from typing import Optional, Sequence, Union
 
 import torch
 from torch.utils.data import DataLoader, random_split
 
-from .AbstractLoggingTrainer import AbstractLoggingTrainer 
+from .AbstractLoggingTrainer import AbstractLoggingTrainer
+from ...losses.wgan_losses import (
+    GradientPenaltyLoss, 
+    AdveserialGeneratorLoss,
+    WassersteinDiscriminatorLoss 
+)
 
 path_type = Union[pathlib.Path, str]
 """
@@ -20,13 +25,14 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         self,
         generator: torch.nn.Module,
         generator_optimizer: torch.optim.Optimizer,
-        generator_loss_fn: torch.nn.Module,
+        generator_reconstruction_loss_fn: Sequence[torch.nn.Module],
         discriminator: torch.nn.Module,
         discriminator_optimizer: torch.optim.Optimizer,
-        discriminator_loss_fn: torch.nn.Module,
-        gradient_penalty_loss_fn: Optional[torch.nn.Module] = None,
+        discriminator_loss_fn: torch.nn.Module = WassersteinDiscriminatorLoss(),
         generator_update_freq: int = 5,
+        generator_adversarial_loss_fn: Optional[torch.nn.Module] = AdveserialGeneratorLoss(),
         discriminator_update_freq: int = 1,
+        gradient_penalty_loss_fn: Optional[torch.nn.Module] = GradientPenaltyLoss(),
         **kwargs
     ):
 
@@ -34,7 +40,20 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
 
         self._generator = generator
         self._generator_optimizer = generator_optimizer
-        self._generator_loss_fn = generator_loss_fn
+
+        if isinstance(generator_reconstruction_loss_fn, Sequence):
+            if not all(isinstance(fn, torch.nn.Module) for fn in generator_reconstruction_loss_fn):
+                raise TypeError(
+                    "All elements in generator_reconstruction_loss_fn must be torch.nn.Modules."
+                )
+            self._generator_reconstruction_loss_fn = generator_reconstruction_loss_fn
+        elif isinstance(generator_reconstruction_loss_fn, torch.nn.Module):
+            self._generator_reconstruction_loss_fn = [generator_reconstruction_loss_fn]
+        else:
+            raise TypeError(
+                "generator_reconstruction_loss_fn must be a torch.nn.Module or a list of torch.nn.Modules."
+            )
+        self._generator_adversarial_loss_fn = generator_adversarial_loss_fn
 
         self._discriminator = discriminator
         self._discriminator_optimizer = discriminator_optimizer
@@ -61,8 +80,12 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             0.0, device=self.device).detach()
         self._last_gradient_penalty_loss = torch.tensor(
             0.0, device=self.device).detach()
-        self._last_generator_loss = torch.tensor(
+        self._last_generator_adversarial_loss = torch.tensor(
             0.0, device=self.device).detach()
+        self._last_generator_reconstruction_loss = {
+            loss_fn_name: torch.tensor(0.0, device=self.device).detach()
+            for loss_fn_name in self.generator_loss_name
+        }
         
     def _train_discriminator_step(
         self,
@@ -141,17 +164,30 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         fake_as_real_prob = self._discriminator(
             torch.cat((pred, inputs), dim=1)
         )
-        generator_loss = self._generator_loss_fn(
-            fake_as_real_prob, targets, pred
-        )
-        generator_loss.backward()
-        self._generator_optimizer.step()
+        
+        total_loss = torch.tensor(0.0, device=self.device)
+        
+        for loss_fn_name, loss_fn in zip(
+            self.generator_reconstruction_loss_name,
+            self._generator_reconstruction_loss_fn
+        ):
+            
+            _loss = loss_fn(targets, pred)
+            total_loss += _loss
+            self._last_generator_reconstruction_loss[loss_fn_name] = _loss.detach()
 
-        # update the last generator loss
-        self._last_generator_loss = generator_loss.detach()
+        _loss = self._generator_adversarial_loss_fn(fake_as_real_prob)
+        total_loss += _loss
+        self._last_generator_adversarial_loss = _loss.detach()
+
+        total_loss.backward()
+        self._generator_optimizer.step()        
+
         return {
-            self.generator_loss_name:
-                self._last_generator_loss.item(),
+            **{name: loss.item() for name, loss in \
+               self._last_generator_reconstruction_loss.items()},
+            self.generator_adversarial_loss_name:
+                self._last_generator_adversarial_loss.item(),
         }
         
     def train_step(
@@ -174,9 +210,9 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             all_loss_dict.update(loss_dict)
         else:
             all_loss_dict.update({
-                type(self._discriminator_loss_fn).__name__:
+                self.discriminator_loss_name:
                     self._last_discriminator_loss.item(),
-                type(self._gradient_penalty_loss_fn).__name__:
+                self.gradient_penalty_loss_name:
                     self._last_gradient_penalty_loss.item(),
             })
 
@@ -187,9 +223,11 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             all_loss_dict.update(loss_dict)
         else:
             all_loss_dict.update({
-                type(self._generator_loss_fn).__name__:
-                    self._last_generator_loss.item(),
+                name: loss.item() for name, loss in \
+                    self._last_generator_reconstruction_loss.items()
             })
+            all_loss_dict[self.generator_adversarial_loss_name] = \
+                self._last_generator_adversarial_loss.item()
 
         return all_loss_dict
     
@@ -237,7 +275,7 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             all_loss_dict[self.gradient_penalty_loss_name] = \
                 gp_loss.item()
 
-            generator_loss = self._generator_loss_fn(
+            generator_loss = self._generator_reconstruction_loss_fn(
                 discriminator_fake_as_real_prob, targets, pred
             )
 
@@ -313,8 +351,16 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         return self._discriminator_update_freq
     
     @property
-    def generator_loss_name(self):
-        return type(self._generator_loss_fn).__name__
+    def generator_reconstruction_loss_name(self):
+        return [
+            type(loss_fn).__name__ for loss_fn in self._generator_reconstruction_loss_fn
+        ]
+    
+    @property
+    def generator_adversarial_loss_name(self):
+        return type(self._generator_adversarial_loss_fn).__name__ \
+            if self._generator_adversarial_loss_fn is not None else \
+                "NoGeneratorAdversarialLoss"
     
     @property
     def discriminator_loss_name(self):
