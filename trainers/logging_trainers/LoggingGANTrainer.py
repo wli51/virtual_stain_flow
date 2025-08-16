@@ -235,6 +235,13 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             input=input, target=target
         )
 
+        self._generator.eval()
+        self._discriminator.eval()
+        with torch.no_grad():
+            pred = self._generator(input)
+            for _, metric in self.metrics.items():
+                metric.update(pred, target, validation=False)
+
         return {
             **disc_loss_dict,
             **gen_loss_dict,
