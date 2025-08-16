@@ -18,6 +18,7 @@ class WassersteinDiscriminatorLoss(AbstractLoss):
     def __init__(
         self,
         metric_name: str = "WassersteinDiscriminatorLoss",
+        **kwargs: Optional[dict]
     ):
         super().__init__(metric_name)
 
@@ -65,13 +66,14 @@ class GradientPenaltyLoss(AbstractLoss):
     def __init__(
         self,
         metric_name: str = "GradientPenaltyLoss",
+        **kwargs: Optional[dict]
     ):
-        super().__init__(metric_name)
+        super().__init__(metric_name, **kwargs)
 
     def forward(
         self, 
-        target: torch.Tensor,
-        predicted: torch.Tensor,
+        real_target_input_stack: torch.Tensor,
+        fake_target_input_stack: torch.Tensor,
         discriminator: torch.nn.Module,
         **kwargs: Optional[dict]
     ):
@@ -86,11 +88,12 @@ class GradientPenaltyLoss(AbstractLoss):
         :param kwargs: Additional keyword arguments, not used in this loss.
         """
         
-        device = self.trainer.device
-        batch_size = target.size(0)
+        batch_size = real_target_input_stack.size(0)
 
-        eta = torch.rand(batch_size, 1, 1, 1, device=device).expand_as(target)
-        interpolated = (eta * target + (1 - eta) * predicted).requires_grad_(True)
+        eta = torch.rand(
+            batch_size, 1, 1, 1, 
+            device=self.device).expand_as(real_target_input_stack)
+        interpolated = (eta * real_target_input_stack + (1 - eta) * fake_target_input_stack).requires_grad_(True)
         prob_interpolated = discriminator(interpolated)
 
         gradients = torch.autograd.grad(
@@ -114,7 +117,9 @@ classifies the generated images as real.
 """
 class AdveserialGeneratorLoss(AbstractLoss):
     def __init__(
+        self,
         metric_name: str = "AdversarialGeneratorLoss",
+        **kwargs: Optional[dict]
     ):
         super().__init__(metric_name)
 
