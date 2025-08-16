@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -9,11 +10,14 @@ Adapted from https://github.com/WayScience/nuclear_speckles_analysis
 class AbstractLoss(nn.Module, ABC):
     """Abstract class for metrics"""
 
-    def __init__(self, _metric_name: str):
+    def __init__(self, metric_name: Optional[str] = None):
         
         super(AbstractLoss, self).__init__()
 
-        self._metric_name = _metric_name
+        if metric_name is None:
+            metric_name = self.__class__.__name__
+
+        self._metric_name = metric_name
         self._trainer = None
 
     @property
@@ -28,7 +32,7 @@ class AbstractLoss(nn.Module, ABC):
         self._trainer = value
 
     @property
-    def metric_name(self, _metric_name: str):
+    def metric_name(self):
         """Defines the mertic name returned by the class."""
         return self._metric_name
 
