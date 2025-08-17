@@ -46,6 +46,8 @@ class MlflowLogger:
         mlflow_start_run_args: dict = None,
         mlflow_log_params_args: dict = None,
         callbacks: Optional[List[Any]] = None,
+        save_model_at_train_end: bool = True,
+        save_model_every_n_epochs: Optional[int] = None,
     ):
         """
         Initialize the MLflowLoggerV2.
@@ -121,6 +123,9 @@ class MlflowLogger:
             cb.bind_parent(self)
 
         self._run_id = None
+
+        self._save_model_at_train_end = save_model_at_train_end
+        self._save_model_every_n_epochs = save_model_every_n_epochs
         
         return None
     
@@ -218,6 +223,10 @@ class MlflowLogger:
         Iterate over the most recent log items in trainer and call mlflow log metric
         """
 
+        if self._save_model_every_n_epochs is not None:
+            if self.trainer.epoch % self._save_model_every_n_epochs == 0:
+                self._save_model_weights()
+
         # Call on_epoch_end for all registered callbacks
         for callback in self.callbacks:
             if hasattr(callback, 'on_epoch_end'):
@@ -237,6 +246,12 @@ class MlflowLogger:
         Then ends run
         """
         # Save weights to a temporary directory and log artifacts
+        if self._save_model_at_train_end:
+            self._save_model_weights()       
+
+    def _save_model_weights(
+        self
+    ):
         with tempfile.TemporaryDirectory() as tmpdirname:
             
             tmpdirpath = pathlib.Path(tmpdirname)
