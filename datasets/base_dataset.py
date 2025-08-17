@@ -16,14 +16,23 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
-from albumentations import Compose, ImageOnlyTransform
+from albumentations import Compose, ImageOnlyTransform, BasicTransform
 
 from .utils import _to_hwc, _to_chw
 from .dataset_view import DatasetView, IndexState, FileState
 
 # temporary alias here for type hinting
 # will be moved/centralized to the transform module when the refactor is complete
-TransformType = Union[ImageOnlyTransform, Compose]
+TransformType = Union[BasicTransform, ImageOnlyTransform, Compose]
+
+def is_valid_image_transform(
+    obj: TransformType,
+) -> bool:
+    if isinstance(obj, (BasicTransform, ImageOnlyTransform)):
+        return 'image' in obj.targets
+    else:
+        return False
+
 def validate_compose_transform(
     obj: TransformType,
     apply_to_target: bool = True,
@@ -40,11 +49,11 @@ def validate_compose_transform(
     """
     add_targets = {'target': 'image'} if apply_to_target else {}
 
-    if isinstance(obj, ImageOnlyTransform):
+    if is_valid_image_transform(obj):
         return Compose([obj], additional_targets=add_targets)
 
     elif isinstance(obj, Sequence):
-        if not all(isinstance(t, ImageOnlyTransform) for t in obj):
+        if not all(is_valid_image_transform(t) for t in obj):
             raise TypeError("All items must be ImageOnlyTransform instances.")
         return Compose(list(obj), additional_targets=add_targets)
 
