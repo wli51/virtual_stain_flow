@@ -31,7 +31,8 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         discriminator: torch.nn.Module,
         discriminator_optimizer: torch.optim.Optimizer,
         discriminator_loss_fn: torch.nn.Module = WassersteinDiscriminatorLoss(),
-        generator_update_freq: int = 5,
+        generator_update_freq: int = 5,        
+        generator_reconstruction_loss_weights: Sequence[float] = None,
         generator_adversarial_loss_fn: Optional[torch.nn.Module] = AdveserialGeneratorLoss(),
         discriminator_update_freq: int = 1,
         gradient_penalty_loss_fn: Optional[torch.nn.Module] = GradientPenaltyLoss(),
@@ -62,11 +63,18 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
                 "generator_adversarial_loss_fn must be a torch.nn.Module or None."
             )
         
+        if generator_reconstruction_loss_weights is None:
+            generator_reconstruction_loss_weights = [1.0] * len(generator_reconstruction_loss_fn)
+        elif len(generator_reconstruction_loss_weights) != len(generator_reconstruction_loss_fn):
+            raise ValueError(
+                "generator_reconstruction_loss_weights must have the same length as generator_reconstruction_loss_fn."
+            )
+
         self.gen_loss_group = LossGroup(
             "generator_losses",
             [
-                *[LossItem(module=loss_fn, args=("target", "pred"), weight=1.0)
-                 for loss_fn in generator_reconstruction_loss_fn],
+                *[LossItem(module=loss_fn, args=("target", "pred"), weight=weight)
+                 for loss_fn, weight in zip(generator_reconstruction_loss_fn, generator_reconstruction_loss_weights)],
                 LossItem(
                     module=generator_adversarial_loss_fn,
                     args=("discriminator_fake_as_real_prob",),
