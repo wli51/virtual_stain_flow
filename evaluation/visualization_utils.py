@@ -172,7 +172,11 @@ def plot_predictions_grid_from_model(
         targets.append(target)
         if is_patch_dataset:
             raw_images.append(dataset.file_state.input_image_raw)
-            patch_coords.append(dataset.bbox_accessor.get_bbox(i))
+            (
+            xmin, ymin, xmax, ymax,
+            _, _, _
+            ) = dataset.bbox_state
+            patch_coords.append((xmin, ymin, xmax, ymax))
 
     _plot_predictions_grid(
         torch.stack(inputs), 

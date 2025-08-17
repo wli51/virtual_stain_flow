@@ -141,7 +141,6 @@ class PlotPredictionCallback(AbstractLoggerCallback):
             metrics=self.plot_metrics,
             save_path=plot_file_path,
             device=original_device,
-            show=False,
             **self.plot_kwargs
         )
         plot_file_path = pathlib.Path(plot_file_path)
