@@ -140,6 +140,9 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         self._last_generator_losses = {
             k: zero for k in self.gen_loss_group.keys}
         
+        # track generator update counts
+        self._global_step = 0
+        
     def _train_discriminator_step(
         self,
         input: torch.tensor, 
@@ -151,7 +154,9 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         to be already moved to the device. If the predicted images
         are not provided, they are generated using the generator.
         """
-        if self.epoch % self.discriminator_update_freq == 0:            
+
+        # batch-wise update control
+        if self._global_step % self._discriminator_update_freq == 0:          
 
             self._discriminator.train()
             self._discriminator_optimizer.zero_grad()
@@ -200,7 +205,7 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         to be already moved to the device.
         """
 
-        if self.epoch % self.generator_update_freq == 0:
+        if self._global_step % self._discriminator_update_freq == 0:
 
             self._generator.train()
             self._generator_optimizer.zero_grad()
@@ -244,6 +249,8 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         gen_loss_dict = self._train_generator_step(
             input=input, target=target
         )
+
+        self._global_step += 1
 
         self._generator.eval()
         self._discriminator.eval()
