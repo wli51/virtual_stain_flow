@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-from ..datasets.PatchDataset import PatchDataset
+from ..datasets.bbox_dataset import BBoxCropImageDataset
 from ..evaluation.predict_utils import predict_image, process_tensor_image
 from ..evaluation.evaluation_utils import evaluate_per_image_metric
 
@@ -28,9 +28,10 @@ def _plot_predictions_grid(
     :param inputs: Input images (N, C, H, W) or (N, H, W).
     :param targets: Target images (N, C, H, W) or (N, H, W).
     :param predictions: Model predictions (N, C, H, W) or (N, H, W).
-    :param raw_images: Optional raw images for PatchDataset (N, H, W).
-    :param patch_coords: Optional list of (x, y) coordinates for patches. 
-        Only used if raw_images is provided. Length match the first dimension of inputs/targets/predictions.
+    :param raw_images: Optional raw images for BBoxCropImageDataset (N, H, W).
+    :param patch_coords: Optional list of tuples of (x_min, y_min, x_max, y_max)
+        Only used if raw_images is provided.
+        Length should match the first dimension of inputs/targets/predictions.
     :param metrics_df: Optional DataFrame with per-image metrics.
     :param save_path: If provided, saves figure.
     :param kwargs: Additional keyword arguments to pass to plt.subplots.
@@ -59,11 +60,20 @@ def _plot_predictions_grid(
             ax.set_title(column_titles[col_idx])
             ax.axis("off")
 
-            # Draw rectangle on raw image if PatchDataset
-            if is_patch_dataset and col_idx == 0 and patch_coords is not None:
-                patch_x, patch_y = patch_coords[row_idx]  # (x, y) coordinates
-                patch_size = targets.shape[-1]  # Assume square patches from target size
-                rect = Rectangle((patch_x, patch_y), patch_size, patch_size, linewidth=2, edgecolor="r", facecolor="none")
+            # Draw rectangle on raw image if BBoxCropImageDataset
+            if is_patch_dataset and col_idx == 0 and \
+                patch_coords is not None:
+                (x_min, y_min, x_max, y_max
+                 ) = patch_coords[row_idx]
+                x = x_min
+                y = y_min
+                width = x_max - x_min
+                height = y_max - y_min
+                rect = Rectangle((x, y), width, height, 
+                                 linewidth=2, 
+                                 edgecolor="r", 
+                                 facecolor="none"
+                                )
                 ax.add_patch(rect)
 
         # Display metrics if provided
