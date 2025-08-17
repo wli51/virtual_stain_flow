@@ -111,7 +111,7 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             ]
         )
 
-        if not(generator_update_freq == 1) or \
+        if not(generator_update_freq == 1) and \
             not (discriminator_update_freq == 1):
             raise ValueError(
                 "One of the generator or discriminator update frequencies must "
@@ -126,7 +126,7 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         # during epochs they are not updated. Alternative strategy would
         # be to modify the logging system to only log loss values during
         # updates but that would introduce additional complexity. 
-        zero = torch.tensor(0.0, device=self.device).detach().item()
+        zero = 0.0
         self._last_discriminator_losses = {
             k: zero for k in self.disc_loss_group.keys}
         self._last_generator_losses = {
@@ -136,7 +136,7 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         self,
         input: torch.tensor, 
         target: torch.tensor,
-    ) -> Dict[str, np.float]:
+    ) -> Dict[str, float]:
         """
         Internal helper method to perform a single training step
         for the discriminator. Expects the input and target
@@ -185,7 +185,7 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         self,
         input: torch.tensor,
         target: torch.tensor,
-    ) -> Dict[str, np.float]:
+    ) -> Dict[str, float]:
         """
         Internal helper method to perform a single training step
         for the generator. Expects the input and target
@@ -331,6 +331,41 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         
         return all_agg_loss_dict
     
+    def save_model(
+        self, 
+        save_path: path_type,
+        file_name_prefix: Optional[str] = None,
+        file_name_suffix: Optional[str] = None,
+        file_ext: str = '.pth',
+        best_model: bool = True
+    ):
+        """
+        Save the model to the specified path.
+        
+        :param save_path: The path to save the model.
+        """
+
+        if isinstance(save_path, str):
+            save_path = pathlib.Path(save_path)
+        
+        if isinstance(save_path, pathlib.Path):
+            if not save_path.exists():
+                save_path.mkdir(parents=True, exist_ok=True)
+        else:
+            raise TypeError("save_path must be a string or pathlib.Path")
+        
+        model_file_path = save_path / f"{file_name_prefix}_model_{file_name_suffix}{file_ext}"
+
+        torch.save(
+            self.best_model if best_model else self.model,
+            model_file_path
+        )
+
+        if model_file_path.exists():
+            return [model_file_path]
+        else:
+            return []
+    
     @property
     def generator(self):
         return self._generator
@@ -341,10 +376,11 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
     
     @property
     def model(self):
-        return {
-            "generator": self._generator,
-            "discriminator": self._discriminator
-        }
+        return self._generator
+
+    @property
+    def discriminator(self):
+        return self._discriminator
     
     @property
     def generator_update_freq(self):
