@@ -3,6 +3,7 @@ from collections import defaultdict
 from typing import List, Callable, Dict, Optional, Union
 import pathlib
 
+from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader, random_split
 
@@ -26,24 +27,26 @@ class AbstractLoggingTrainer(AbstractTrainer):
         self,
         dataset: torch.utils.data.Dataset,
         batch_size: int = 16,
-        epochs: int = 10,
+        train_for_epochs: int = 10,
         patience: int = 5,
         callbacks: List[AbstractCallback] = None,
         metrics: Dict[str, AbstractMetrics] = None,
         device: Optional[torch.device] = None,
         early_termination_metric: str = None,
         early_termination_mode: str = "min",
+        **kwargs
     ):
         
         super().__init__(
             dataset=dataset,
             batch_size=batch_size,
-            epochs=epochs,
+            train_for_epochs=train_for_epochs,
             patience=patience,
             callbacks=callbacks,
             metrics=metrics,
             device=device,
-            early_termination_metric=early_termination_metric
+            early_termination_metric=early_termination_metric,
+            **kwargs
         )
 
         if early_termination_mode not in ["min", "max"]:
@@ -91,13 +94,11 @@ class AbstractLoggingTrainer(AbstractTrainer):
         of the callback  invocations.
 
         :param logger: The logger to be used for logging training progress.
-        :raises TypeError: If the logger is not an instance of MlflowLoggerV2.
+        :raises TypeError: If the logger is not an instance of MlflowLogger.
         """
 
         if not isinstance(logger, MlflowLogger):
-            raise TypeError("logger must be an instance of MlflowLoggerV2")
-        
-        self.model.to(self.device)
+            raise TypeError("logger must be an instance of MlflowLogger")        
 
         # 1A) Bind the logger to the trainer, and
         # Invoke the on_train_start method of the logger
@@ -110,7 +111,10 @@ class AbstractLoggingTrainer(AbstractTrainer):
             if hasattr(cb, "on_train_start"):
                 cb.on_train_start()
 
-        for epoch in range(self.epochs):
+        for epoch in tqdm(range(
+            self.starting_epoch, 
+            self._train_for_epochs + self.starting_epoch            
+        ), desc="Training Progress", unit="epoch", total=self._train_for_epochs):
 
             self.epoch += 1
 
@@ -150,7 +154,7 @@ class AbstractLoggingTrainer(AbstractTrainer):
 
             # 5) Compute additional metrics and log
             for metric_name, metric_fn in self.metrics.items():
-                train_metric_value, val_metric_value = metric.compute()
+                train_metric_value, val_metric_value = metric_fn.compute()
                 self._train_metrics[metric_name].append(train_metric_value)
                 self._val_metrics[metric_name].append(val_metric_value)
 
