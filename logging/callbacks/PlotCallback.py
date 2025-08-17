@@ -9,14 +9,14 @@ from .LoggerCallback import (
     log_artifact_type
 )
 from ...evaluation.visualization_utils import plot_predictions_grid_from_model
-from ...datasets.PatchDataset import PatchDataset
+from ...datasets.bbox_dataset import BBoxCropImageDataset
 
 class PlotPredictionCallback(AbstractLoggerCallback):
     def __init__(
         self,
         name: str,
         save_path: Union[pathlib.Path, str],
-        dataset: PatchDataset, 
+        dataset: BBoxCropImageDataset, 
         plot_n_patches: int=5,
         indices: Union[List[int], None]=None,
         plot_metrics: List[nn.Module]=None,
@@ -42,17 +42,17 @@ class PlotPredictionCallback(AbstractLoggerCallback):
         :param every_n_epochs: How frequent should intermediate plots should be plotted, defaults to 5
         :param random_seed: Random seed for reproducibility for random patch/image selection, defaults to 42.
         :param kwargs: Additional keyword arguments to be passed to plot_patches.
-        :raises TypeError: If the dataset is not an instance of PatchDataset.
+        :raises TypeError: If the dataset is not an instance of BBoxCropImageDataset.
         """
 
         super().__init__(name)
 
         self._path = save_path
-        if isinstance(dataset, PatchDataset):
+        if isinstance(dataset, BBoxCropImageDataset):
             pass
         else:
-            raise TypeError(f"Expected PatchDataset, got {type(dataset)}")
-        
+            raise TypeError(f"Expected BBoxCropImageDataset, got {type(dataset)}")
+
         self._dataset = dataset
 
         # Additional kwargs passed to plot_patches
@@ -141,6 +141,7 @@ class PlotPredictionCallback(AbstractLoggerCallback):
             metrics=self.plot_metrics,
             save_path=plot_file_path,
             device=original_device,
+            show=False,
             **self.plot_kwargs
         )
         plot_file_path = pathlib.Path(plot_file_path)
