@@ -331,3 +331,48 @@ class PixelShuffle2DUpBlock(AbstractUpBlock):
             H' and W' are double the input height and width respectively.
         """
         return self.network(x)
+    
+class Bilinear2DUpsampleBlock(AbstractUpBlock):
+    """
+    A Bilinear2DUpsampleBlock that applies a non-learnable bilinear upsampling
+    with a fixed scale factor of 2. Doubles the spatial dimensions of the input
+    tensor while keeping the number of channels unchanged.
+
+    Lightweight alternative to ConvTrans2DUpBlock due to the non-learnable nature.
+    Unlike ConvTranspose2d, the block does not change the number of channels.
+    """
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: Optional[int] = None,
+        **kwargs
+    ):
+        """
+        Initializes the Bilinear2DUpsampleBlock.
+
+        :param in_channels: Number of input channels.
+        :param out_channels: Number of output channels.
+            Not used; kept for a consistent block class signature. Channels are unchanged.
+        :param kwargs: Additional keyword arguments (unused, for API compatibility).
+        """
+        super().__init__(
+            in_channels=in_channels,
+            out_channels=in_channels,  # channels preserved
+            num_units=1
+        )
+
+        # Fixed behavior: upsample spatial dimensions by a factor of 2
+        self.network = nn.Upsample(
+            scale_factor=2,
+            mode="bilinear",
+            align_corners=False
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Forward pass of the block.
+
+        :param x: Input tensor, shape (B, C, H, W).
+        :return: Output tensor, shape (B, C, 2H, 2W).
+        """
+        return self.network(x)

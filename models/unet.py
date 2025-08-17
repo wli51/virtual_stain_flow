@@ -14,7 +14,8 @@ from .up_down_blocks import (
     IdentityBlock,
     Conv2DDownBlock,
     MaxPool2DDownBlock,
-    ConvTrans2DUpBlock
+    ConvTrans2DUpBlock,
+    Bilinear2DUpsampleBlock
 )
 """
 UNet model implementation leveraging the modular "block" and "stage", 
@@ -46,6 +47,7 @@ class UNet(nn.Module):
         base_channels: int = 64,
         depth: int = 4,
         max_pool_down: bool = False,
+        bilinear_up: bool = False,   
         act_type: ActivationType = 'sigmoid',
         _num_units: Union[List[int], int] = 2
     ):
@@ -59,6 +61,8 @@ class UNet(nn.Module):
             up-sampling stages. Must be >= 1.
         :param max_pool_down: If True, use MaxPool2DDownBlock for down-sampling,
             otherwise use Conv2DDownBlock. Default is False.
+        :param bilinear_up: If True, use Bilinear2DUpsampleBlock for up-sampling,
+            otherwise use ConvTrans2DUpBlock. Default is False.
         :param act_type: Type of activation function to use in the output layer.
             Default is 'sigmoid'.
         :param _num_units: Number of computation units in each stage.
@@ -121,9 +125,14 @@ class UNet(nn.Module):
             depth=depth,
         )
 
+        if bilinear_up:
+            decoder_in_block_handles = [Bilinear2DUpsampleBlock] * (depth - 1)
+        else:
+            decoder_in_block_handles = [ConvTrans2DUpBlock] * (depth - 1)
+
         self.decoder = Decoder(
             encoder_feature_map_channels=self.encoder.feature_map_channels,
-            in_block_handles=[ConvTrans2DUpBlock] * (depth - 1),
+            in_block_handles=decoder_in_block_handles,
             # mirror the comp_block_handles and comp_block_kwargs
             comp_block_handles=comp_block_handles[::-1][1:], 
             in_block_kwargs=in_block_kwargs[::-1][1:],
