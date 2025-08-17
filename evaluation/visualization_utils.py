@@ -104,7 +104,7 @@ def plot_predictions_grid_from_eval(
     This function operates on the outputs downstream of `evaluate_per_image_metric` 
     and `predict_image` to avoid unecessary forward pass.
 
-    :param dataset: Dataset (either normal or PatchDataset).
+    :param dataset: Dataset (either normal or BBoxCropImageDataset).
     :param predictions: Subsetted tensor/NumPy array of predictions.
     :param indices: Indices corresponding to the subset.
     :param metrics_df: DataFrame with per-image metrics for the subset.
@@ -112,7 +112,7 @@ def plot_predictions_grid_from_eval(
     :param kwargs: Additional keyword arguments to pass to `_plot_predictions_grid`.
     """
 
-    is_patch_dataset = isinstance(dataset, PatchDataset)
+    is_patch_dataset = isinstance(dataset, BBoxCropImageDataset)
 
     # Extract input, target, and (optional) raw images & patch coordinates
     raw_images, inputs, targets, patch_coords = [], [], [], []
@@ -120,8 +120,8 @@ def plot_predictions_grid_from_eval(
         inputs.append(dataset[i][0])
         targets.append(dataset[i][1])
         if is_patch_dataset:
-            raw_images.append(dataset.raw_input)
-            patch_coords.append(dataset.patch_coords)  # Get patch location
+            raw_images.append(dataset.file_state.input_image_raw)
+            patch_coords.append(dataset.bbox_accessor.get_bbox(i))  # Get patch location
 
     inputs_numpy = process_tensor_image(torch.stack(inputs), invert_function=dataset.input_transform.invert)
     targets_numpy = process_tensor_image(torch.stack(targets), invert_function=dataset.target_transform.invert)
@@ -164,14 +164,15 @@ def plot_predictions_grid_from_model(
     metrics_df = evaluate_per_image_metric(predictions, targets, metrics)
 
     # Step 3: Extract subset of inputs & targets and plot
-    is_patch_dataset = isinstance(dataset, PatchDataset)
+    is_patch_dataset = isinstance(dataset, BBoxCropImageDataset)
     raw_images, inputs, targets, patch_coords = [], [], [], []
     for i in indices:
-        inputs.append(dataset[i][0])
-        targets.append(dataset[i][1])
+        input, target = dataset[i]
+        inputs.append(input)
+        targets.append(target)
         if is_patch_dataset:
-            raw_images.append(dataset.raw_input)
-            patch_coords.append(dataset.patch_coords)  # Get patch location
+            raw_images.append(dataset.file_state.input_image_raw)
+            patch_coords.append(dataset.bbox_accessor.get_bbox(i))
 
     _plot_predictions_grid(
         torch.stack(inputs), 
