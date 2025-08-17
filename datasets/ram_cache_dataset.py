@@ -1,12 +1,21 @@
+from typing import Optional, Tuple
+
 import numpy as np
 import torch
 from tqdm import tqdm
 from torch.utils.data import Dataset
 
+from .base_dataset import (
+    BaseImageDataset,
+    validate_compose_transform,
+    TransformType
+)
+from .utils import _to_hwc, _to_chw
+
 class CompactRAMCache(Dataset):
     def __init__(
         self,
-        dataset,
+        dataset: BaseImageDataset,
         cache_size=None,
         cache_dtype=np.float32,
         transform=None,
@@ -64,14 +73,94 @@ class CompactRAMCache(Dataset):
             x = np.asarray(x, dtype=self._cache_dtype)
             y = np.asarray(y, dtype=self._cache_dtype)
 
-        # Apply transforms lazily (don’t cache transformed copies)
-        if self.transform is not None:
-            t = self.transform(image=x, target=y)
-            x, y = t["image"], t["target"]
-        if self.input_only_transform is not None:
-            x = self.input_only_transform(image=x)["image"]
-        if self.target_only_transform is not None:
-            y = self.target_only_transform(image=y)["image"]
+        x, y = self._apply_transform(x, y)
 
         # Return torch tensors (convert once here, not in cache)
-        return torch.from_numpy(x).to(torch.float32), torch.from_numpy(y).to(torch.float32)
+        return (
+            torch.from_numpy(x).to(torch.float32), 
+            torch.from_numpy(y).to(torch.float32)
+        )
+    
+    @property
+    def transform(self) -> Optional[TransformType]:
+        """
+        Returns the transform applied to both input and target images.
+        """
+        return self._transform
+    @transform.setter
+    def transform(self, value: Optional[TransformType]=None):
+        """
+        Sets the transform to be applied to both input and target images.
+        """
+        if value is not None:
+            value = validate_compose_transform(value, apply_to_target=True)
+        self._transform = value
+
+    @property
+    def input_only_transform(self) -> Optional[TransformType]:
+        """
+        Returns the input-only transform.
+        """
+        return self._input_only_transform
+    @input_only_transform.setter
+    def input_only_transform(self, value: Optional[TransformType]=None):
+        """
+        Sets the input-only transform.
+        """
+        if value is not None:
+            value = validate_compose_transform(value, apply_to_target=False)
+        self._input_only_transform = value
+
+    @property
+    def target_only_transform(self) -> Optional[TransformType]:
+        """
+        Returns the target-only transform.
+        """
+        return self._target_only_transform
+    @target_only_transform.setter
+    def target_only_transform(self, value: Optional[TransformType]=None):
+        """
+        Sets the target-only transform.
+        """
+        if value is not None:
+            value = validate_compose_transform(value, apply_to_target=False)
+        self._target_only_transform = value
+
+    def _apply_transform(
+        self,
+        input_image: np.ndarray,
+        target_image: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:        
+        """
+        Helper method to apply the dataset's configured image transformation
+        to an input and target image stack pair.
+        
+        :param input_image: Input image (C, H, W) as a NumPy array.
+        :param target_image: Target image (C, H, W) as a NumPy array.
+        :return: Tuple of transformed input and target images.
+        """
+
+        inp_ref, tgt_ref = input_image, target_image
+
+        # Albumentations expects HWC
+        inp_hwc = _to_hwc(input_image)
+        tgt_hwc = _to_hwc(target_image)
+
+        # First apply shared transforms
+        if self.transform is not None:
+            t = self.transform(image=inp_hwc, target=tgt_hwc)
+            inp_hwc = t['image']
+            tgt_hwc = t['target']
+        
+        # Then apply input-only and target-only transforms
+        if self.input_only_transform is not None:
+            inp_hwc = self.input_only_transform(image=inp_hwc)['image']
+
+        if self.target_only_transform is not None:
+            tgt_hwc = self.target_only_transform(image=tgt_hwc)['image']
+
+        # Convert back to CHW (match original shapes)
+        inp_chw = _to_chw(inp_hwc, ref=inp_ref)
+        tgt_chw = _to_chw(tgt_hwc, ref=tgt_ref)
+        
+        return inp_chw, tgt_chw
