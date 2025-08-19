@@ -5,7 +5,7 @@ from typing import Optional, Sequence, Union, Dict
 import numpy as np
 import torch
 
-from .AbstractLoggingTrainer import AbstractLoggingTrainer
+from .AbstractLoggingTrainer import AbstractLoggingTrainer, MlflowLogger
 from ...losses.AbstractLoss import AbstractLoss
 from ...losses.wgan_losses import (
     GradientPenaltyLoss, 
@@ -345,6 +345,18 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
             all_agg_loss_dict[key] = sum(loss_list) / len(loss_list)
         
         return all_agg_loss_dict
+    
+    def train(
+        self,
+        logger: MlflowLogger
+    ):
+        self._generator.to(self.device)
+        self._discriminator.to(self.device)
+
+        # superclass implements generic logging training framework and
+        # takes over from here
+        super().train(logger)
+        
     
     def save_model(
         self, 
