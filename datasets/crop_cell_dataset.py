@@ -62,6 +62,21 @@ class CropCellImageDataset(BBoxCropImageDataset):
         all_bboxes_df = pd.concat(
             bboxes_df_list, ignore_index=True).reset_index(drop=True)
         
+        # Sort the DataFrames to ensure consistent order
+        order, expanded_file_index, all_bboxes_df = deterministic_dual_sort(
+            expanded_file_index, all_bboxes_df,
+            id_cols=None, # uses all columns of the bbox_df
+            case_insensitive=True
+        )
+
+        # If metadata was provided, sort it as well
+        if expanded_metadata is not None:
+            expanded_metadata = expanded_metadata.loc[
+                order].reset_index(drop=True)
+
+        # Reorder the object metadata list in place to match the sorted order
+        reorder_list_inplace(bboxes_obj_metadata_list, order)
+        
         super().__init__(
             file_index=expanded_file_index,
             bbox_annotations=all_bboxes_df,
@@ -137,3 +152,58 @@ def expand_df_match_bbox(
     expanded_df = df.iloc[mapping].reset_index(drop=True)
 
     return expanded_df, mapping
+
+def deterministic_dual_sort(
+        file_index: pd.DataFrame,
+        bbox_df: pd.DataFrame,
+        id_cols=None,
+        case_insensitive=False,
+        na_position="last"
+    ):
+    """
+    Perform a stable lexicographic sort on two DataFrames:
+    - file_index: DataFrame containing file paths or identifiers.
+    - bbox_df: DataFrame containing bounding box annotations.
+    This ensures the order of the dataset constructed from the file_index
+        and bbox_df is consistent across runs.
+    """
+    assert len(file_index) == len(bbox_df), "DataFrames must be row-aligned and same length."
+
+    # Normalize pathlib columns to strings
+    norm = file_index.map(
+        lambda p: p.as_posix().lower() if case_insensitive else p.as_posix())
+
+    # Select numeric columns to sort by (default: all)
+    if id_cols is None:
+        id_cols = list(bbox_df.columns)
+
+    # Build a temporary key frame: all path cols first, then numeric cols
+    key_df = pd.concat([norm, bbox_df[id_cols]], axis=1)
+
+    # Stable lexicographic sort across all key columns
+    order = key_df.sort_values(list(key_df.columns),
+                               kind="mergesort",    # stable
+                               na_position=na_position).index
+
+    # Apply the same order to both original DataFrames
+    file_index_sorted   = file_index.loc[order].reset_index(drop=True)
+    bbox_df_sorted = bbox_df.loc[order].reset_index(drop=True)
+
+    return order, file_index_sorted, bbox_df_sorted
+
+def reorder_list_inplace(lst, order_pos):
+    """
+    Memory efficiently reorder a list in place
+    """
+    # Build inverse permutation: inv[orig_pos] = new_pos
+    n = len(lst)
+    inv = [None] * n
+    for new_pos, orig_pos in enumerate(order_pos):
+        inv[orig_pos] = new_pos
+
+    # Cycle decomposition with swap-based permute (mutates inv as we go)
+    for i in range(n):
+        while inv[i] != i:
+            j = inv[i]
+            lst[i], lst[j] = lst[j], lst[i]
+            inv[i], inv[j] = inv[j], inv[i]
