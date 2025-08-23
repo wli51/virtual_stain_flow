@@ -58,10 +58,10 @@ class UNet(BaseGeneratorModel):
         :param base_channels: Number of channels in the first layer.
         :param depth: Depth of the UNet, i.e., number of down-sampling and
             up-sampling stages. Must be >= 1.
-        :param max_pool_down: If True, use MaxPool2DDownBlock for down-sampling,
-            otherwise use Conv2DDownBlock. Default is False.
-        :param bilinear_up: If True, use Bilinear2DUpsampleBlock for up-sampling,
-            otherwise use ConvTrans2DUpBlock. Default is False.
+        :param encoder_down_block: Type of down-sampling block to use in the encoder.
+            Can be 'conv' for Conv2DDownBlock or 'maxpool' for MaxPool2DDownBlock.
+        :param decoder_up_block: Type of up-sampling block to use in the decoder.
+            Can be 'convt' for ConvTrans2DUpBlock or 'bilinear' for Bilinear2DUpsampleBlock.
         :param act_type: Type of activation function to use in the output layer.
             Default is 'sigmoid'.
         :param _num_units: Number of computation units in each stage.
