@@ -25,22 +25,43 @@ class BaseModel(ABC, torch.nn.Module):
         :param x: Input tensor.
         :return: Output tensor after passing through the model.
         """
-        raise NotImplementedError("Subclasses must implement this method.")
-    
-    @abstractmethod
+        raise NotImplementedError("Subclasses must implement this method.")   
+
     def save_weights(
         self, 
         filename: str,
         dir: Union[pathlib.Path, str]
     ) -> pathlib.Path:
-        """
-        Saves the model weights to a specified file in a directory.
+
+        if isinstance(dir, str):
+            dir = pathlib.Path(dir)
+        elif isinstance(dir, pathlib.Path):
+            pass
+        else:
+            raise TypeError(f"Expected dir to be str or pathlib.Path, "
+                            f"got {type(dir)}")        
         
-        :param filename: Name of the file to save the weights.
-        :param dir: Directory where the file will be saved.
-        :return: Path to the saved weight file.
-        """
-        raise NotImplementedError("Subclasses must implement this method.")
+        if not dir.is_dir():
+            raise NotADirectoryError(
+                f"Expected dir {dir} to be a directory, "
+                "but it is not. Please provide a valid directory."
+            )
+        if not dir.exists():
+            raise FileNotFoundError(
+                f"Path {dir} does not exist. "
+                "Please provide a valid directory."
+            )
+        
+        dir = dir.resolve(strict=True)
+
+        weight_file = dir / filename
+
+        torch.save(
+            self.state_dict(),
+            weight_file
+        )
+
+        return weight_file
 
     @abstractmethod
     def to_config(self) -> Dict:
@@ -99,43 +120,7 @@ class BaseGeneratorModel(BaseModel):
         if self.out_conv is not None:
             x = self.out_conv(x)
         
-        return self.out_activation(x)    
-
-    def save_weights(
-        self, 
-        filename: str,
-        dir: Union[pathlib.Path, str]
-    ) -> pathlib.Path:
-
-        if isinstance(dir, str):
-            dir = pathlib.Path(dir)
-        elif isinstance(dir, pathlib.Path):
-            pass
-        else:
-            raise TypeError(f"Expected dir to be str or pathlib.Path, "
-                            f"got {type(dir)}")        
-        
-        if not dir.is_dir():
-            raise NotADirectoryError(
-                f"Expected dir {dir} to be a directory, "
-                "but it is not. Please provide a valid directory."
-            )
-        if not dir.exists():
-            raise FileNotFoundError(
-                f"Path {dir} does not exist. "
-                "Please provide a valid directory."
-            )
-        
-        dir = dir.resolve(strict=True)
-
-        weight_file = dir / filename
-
-        torch.save(
-            self.state_dict(),
-            weight_file
-        )
-
-        return weight_file
+        return self.out_activation(x)
 
     @property
     def in_channels(self) -> int:
