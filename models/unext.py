@@ -1,13 +1,12 @@
-from typing import List, Union, Literal
+from typing import List, Union, Literal, Dict, Any
 
 import timm
 import torch
 import torch.nn as nn
 
-from .utils import (
-    get_activation,
-    ActivationType
-)
+from .utils import ActivationType
+from .factory import _qualname
+from .base_model import BaseGeneratorModel
 from .decoder import Decoder
 from .blocks import Conv2DConvNeXtBlock, Conv2DNormActBlock
 from .up_down_blocks import (
@@ -28,7 +27,7 @@ This model class allows for 4 different decoder architectures:
 3. PixelShuffle2DUpBlock with Conv2DNormActBlock
 4. PixelShuffle2DUpBlock with Conv2DConvNeXtBlock
 """
-class ConvNeXtUNet(nn.Module):
+class ConvNeXtUNet(BaseGeneratorModel):
     def __init__(
         self,
         in_channels: int,
@@ -56,7 +55,11 @@ class ConvNeXtUNet(nn.Module):
             or a list of integers specifying the number of units for each stage.
         """
 
-        super().__init__()
+        super().__init__(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            out_activation=act_type,
+        )
         
         # timm implementation of the depth 4 ConvNeXtV2 model
         # with only down-sampling path, originally optimized
@@ -90,6 +93,7 @@ class ConvNeXtUNet(nn.Module):
                 f"Unsupported decoder_up_block: {decoder_up_block!r}. "
                 "Expected 'pixelshuffle' or 'convt'."
             )
+        self._decoder_up_block = decoder_up_block
         
         if decoder_compute_block == 'convnext':
             comp_block_handles = [Conv2DConvNeXtBlock] * (depth - 1)
@@ -100,6 +104,7 @@ class ConvNeXtUNet(nn.Module):
                 f"Unsupported decoder_compute_block: {decoder_compute_block!r}. "
                 "Expected 'convnext' or 'conv2d'."
             )
+        self._decoder_compute_block = decoder_compute_block
         
         if isinstance(_num_units, int):
             comp_block_kwargs = [{'num_units': _num_units}] * (depth - 1)
@@ -115,6 +120,7 @@ class ConvNeXtUNet(nn.Module):
                 f"Expected _num_units to be int or list, "
                 f"got {type(_num_units).__name__}"
             )
+        self._num_units_cfg = _num_units
 
         self.decoder = Decoder(
             encoder_feature_map_channels=convnextv2_model.feature_info.channels(),
@@ -132,20 +138,74 @@ class ConvNeXtUNet(nn.Module):
             stride=1,
             padding=0,
         )
-
-        self.out_activation = get_activation(act_type)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        
+    def to_config(self) -> Dict[str, Any]:
         """
-        Forward pass of the U-Net model.
+        Produce a JSON-serializable config sufficient to recreate this model.
+        Includes class path, torch version, constructor args, and chosen block classes.
+        """        
+        # Resolve block class paths for provenance
+        if self._decoder_up_block == 'pixelshuffle':
+            up_block_path = _qualname(PixelShuffle2DUpBlock)
+        else:  # 'convt'
+            up_block_path = _qualname(ConvTrans2DUpBlock)
 
-        :param x: Input tensor of shape (batch_size, in_channels, height, width).
-        :type x: torch.Tensor
-        :return: Output tensor of shape (batch_size, out_channels, height, width).
-        :rtype: torch.Tensor
+        if self._decoder_compute_block == 'convnext':
+            comp_block_path = _qualname(Conv2DConvNeXtBlock)
+        else:  # 'conv2d'
+            comp_block_path = _qualname(Conv2DNormActBlock)
+
+        # For provenance only (not required to rebuild):
+        enc_channels = list(self.encoder.feature_info.channels())
+
+        return {
+            "class_path": _qualname(self.__class__),
+            "module_versions": {
+                "torch": torch.__version__,
+                "timm": getattr(timm, "__version__", "unknown"),
+            },
+            "encoder": { # for provenance only, encoder construction is fixed
+                "family": "convnextv2",
+                "variant": "convnextv2_tiny",
+                "features_only": True,
+                "pretrained": False,
+                "feature_channels": enc_channels,
+            },
+            "blocks": {
+                "decoder_up_block": up_block_path,
+                "decoder_compute_block": comp_block_path,
+            },
+            "init": {
+                "in_channels": self._in_channels,
+                "out_channels": self._out_channels,
+                "decoder_up_block": self._decoder_up_block,
+                "decoder_compute_block": self._decoder_compute_block,
+                "act_type": self._act_type,
+                "_num_units": self._num_units_cfg,
+            },
+        }
+    
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]) -> "ConvNeXtUNet":
         """
-        encoder_feature_maps = self.encoder(x)
-        decoder_output = self.decoder(encoder_feature_maps)
-        x = self.out_conv(decoder_output)
+        Recreate a UNet from a config produced by `to_config()`.
+        Accepts either the full dict or just the "init" sub-dict.
+        """
+        
+        init_cfg = config.get("init", config)
 
-        return self.out_activation(x)
+        # Optional: light provenance check on block choice
+        # blocks = config.get("blocks", {})
+        # if blocks:
+        #     # derive expected block paths from string flags in init
+        #     if init_cfg.get("decoder_up_block", "pixelshuffle") == "pixelshuffle":
+        #         expected_up = _qualname(PixelShuffle2DUpBlock)
+        #     else:
+        #         expected_up = _qualname(ConvTrans2DUpBlock)
+
+        #     if init_cfg.get("decoder_compute_block", "convnext") == "convnext":
+        #         expected_comp = _qualname(Conv2DConvNeXtBlock)
+        #     else:
+        #         expected_comp = _qualname(Conv2DNormActBlock)
+
+        return cls(**init_cfg)
