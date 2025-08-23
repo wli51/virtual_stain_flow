@@ -1,4 +1,4 @@
-from typing import List, Union, Dict, Any
+from typing import List, Union, Dict, Literal, Any
 
 import torch
 import torch.nn as nn
@@ -45,8 +45,8 @@ class UNet(BaseGeneratorModel):
         out_channels: int,
         base_channels: int = 64,
         depth: int = 4,
-        max_pool_down: bool = False,
-        bilinear_up: bool = False,   
+        encoder_down_block: Literal["conv", "maxpool"] = "conv",
+        decoder_up_block:   Literal["convt", "bilinear"] = "convt",
         act_type: ActivationType = 'sigmoid',
         _num_units: Union[List[int], int] = 2
     ):
@@ -83,12 +83,14 @@ class UNet(BaseGeneratorModel):
                 f"Expected depth to be int, got {type(depth).__name__}"
             )
 
-        if max_pool_down:
+        if encoder_down_block == "maxpool":
             in_block_handles = [MaxPool2DDownBlock] * (depth - 1)
-        else:
+        elif encoder_down_block == "conv":
             in_block_handles = [Conv2DDownBlock] * (depth - 1)
+        else:
+            raise ValueError("encoder_down_block must be 'conv' or 'maxpool'")
         in_block_handles = [IdentityBlock] + in_block_handles
-        self._max_pool_down = max_pool_down
+        self._encoder_down_block = encoder_down_block
 
         comp_block_handles = [Conv2DNormActBlock] * depth
 
@@ -132,11 +134,13 @@ class UNet(BaseGeneratorModel):
         )
         self._depth = depth
 
-        if bilinear_up:
+        if decoder_up_block == "bilinear":
             decoder_in_block_handles = [Bilinear2DUpsampleBlock] * (depth - 1)
-        else:
+        elif decoder_up_block == "convt":
             decoder_in_block_handles = [ConvTrans2DUpBlock] * (depth - 1)
-        self._bilinear_up = bilinear_up
+        else:
+            raise ValueError("decoder_up_block must be 'convt' or 'bilinear'")
+        self._decoder_up_block = decoder_up_block
 
         self.decoder = Decoder(
             encoder_feature_map_channels=self.encoder.feature_map_channels,
@@ -160,13 +164,15 @@ class UNet(BaseGeneratorModel):
         Produce a JSON-serializable config sufficient to recreate this model.
         Includes class path, torch version, constructor args, and chosen block classes.
         """
-        down_block = (
-            _qualname(MaxPool2DDownBlock) if self._max_pool_down
-            else _qualname(Conv2DDownBlock)
+        down_block_path = (
+            _qualname(MaxPool2DDownBlock) if \
+                self._encoder_down_block == "maxpool" \
+                    else _qualname(Conv2DDownBlock)
         )
-        up_block = (
-            _qualname(Bilinear2DUpsampleBlock) if self._bilinear_up
-            else _qualname(ConvTrans2DUpBlock)
+        up_block_path = (
+            _qualname(Bilinear2DUpsampleBlock) if \
+                self._decoder_up_block == "bilinear" \
+                    else _qualname(ConvTrans2DUpBlock)
         )
 
         # Preserve the original type (int or list) for _num_units
@@ -178,8 +184,8 @@ class UNet(BaseGeneratorModel):
                 "torch": torch.__version__,
             },
             "blocks": {
-                "down_block": down_block,
-                "up_block": up_block,
+                "encoder_down_block": down_block_path,
+                "decoder_up_block": up_block_path,
                 "comp_block": _qualname(Conv2DNormActBlock),
                 "identity_block": _qualname(IdentityBlock),
             },
@@ -188,8 +194,8 @@ class UNet(BaseGeneratorModel):
                 "out_channels": self._out_channels,
                 "base_channels": self._base_channels,
                 "depth": self._depth,
-                "max_pool_down": self._max_pool_down,
-                "bilinear_up": self._bilinear_up,
+                "encoder_down_block": self._encoder_down_block,
+                "decoder_up_block":   self._decoder_up_block,
                 "act_type": self._act_type,
                 "_num_units": num_units,
             },
