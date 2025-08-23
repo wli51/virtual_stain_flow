@@ -48,6 +48,7 @@ class MlflowLogger:
         callbacks: Optional[List[Any]] = None,
         save_model_at_train_end: bool = True,
         save_model_every_n_epochs: Optional[int] = None,
+        save_best_model: bool = True
     ):
         """
         Initialize the MLflowLoggerV2.
@@ -126,6 +127,7 @@ class MlflowLogger:
 
         self._save_model_at_train_end = save_model_at_train_end
         self._save_model_every_n_epochs = save_model_every_n_epochs
+        self._save_best_model = save_best_model
         
         return None
     
@@ -225,7 +227,20 @@ class MlflowLogger:
 
         if self._save_model_every_n_epochs is not None:
             if self.trainer.epoch % self._save_model_every_n_epochs == 0:
-                self._save_model_weights()
+                self._save_model_weights(
+                    prefix=f'epoch_{self.trainer.epoch}',
+                    suffix='weights',
+                    artifact_path='weights',
+                    best_model=False
+                )
+
+        if self._save_best_model:
+            self._save_model_weights(
+                prefix='best',
+                suffix='weights',
+                artifact_path='weights',
+                best_model=True
+            )
 
         # Call on_epoch_end for all registered callbacks
         for callback in self.callbacks:
@@ -247,30 +262,20 @@ class MlflowLogger:
         """
         # Save weights to a temporary directory and log artifacts
         if self._save_model_at_train_end:
-            self._save_model_weights()       
-
-    def _save_model_weights(
-        self
-    ):
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            
-            tmpdirpath = pathlib.Path(tmpdirname)
-            
-            saved_file_paths = self.trainer.save_model(
-                save_path=tmpdirpath,
-                file_name_prefix=self.name,
-                file_name_suffix=f"epoch_{self.trainer.epoch}",
-                file_ext='.pth',
-                best_model=True
+            self._save_model_weights(
+                prefix=f'epoch_{self.trainer.epoch}',
+                suffix='weights',
+                artifact_path='weights',
+                best_model=False
             )
 
-            for saved_file_path in saved_file_paths:
-                mlflow.log_artifact(
-                    str(saved_file_path), 
-                    # TODO consider if we want to allow for more 
-                    # granularity in the weight save path
-                    artifact_path="weights/best"
-                )
+        if self._save_best_model:
+            self._save_model_weights(
+                prefix='best',
+                suffix='weights',
+                artifact_path='weights',
+                best_model=True
+            )
 
         for callback in self.callbacks:
             if hasattr(callback, 'on_train_end'):
@@ -282,6 +287,30 @@ class MlflowLogger:
                     step=self.trainer.epoch
                 )
 
+    def _save_model_weights(
+        self,
+        prefix: Optional[str] = None,
+        suffix: Optional[str] = None,
+        artifact_path: str = "weights",
+        best_model: bool = True
+    ):
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            
+            tmpdirpath = pathlib.Path(tmpdirname)
+            
+            saved_file_paths = self.trainer.save_model(
+                save_path=tmpdirpath,
+                file_name_prefix=prefix,
+                file_name_suffix=suffix,
+                file_ext='.pth',
+                best_model=best_model
+            )
+
+            for saved_file_path in saved_file_paths:
+                mlflow.log_artifact(
+                    str(saved_file_path), 
+                    artifact_path=artifact_path
+                )
     """
     Run management methods
     """
