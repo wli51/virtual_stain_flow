@@ -12,7 +12,57 @@ from .utils import (
     ActivationType
 )
 
-class BaseGeneratorModel(ABC, torch.nn.Module):
+class BaseModel(ABC, torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    @abstractmethod
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Defines the forward pass of the model and how
+        the model parts are connected.
+
+        :param x: Input tensor.
+        :return: Output tensor after passing through the model.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    @abstractmethod
+    def save_weights(
+        self, 
+        filename: str,
+        dir: Union[pathlib.Path, str]
+    ) -> pathlib.Path:
+        """
+        Saves the model weights to a specified file in a directory.
+        
+        :param filename: Name of the file to save the weights.
+        :param dir: Directory where the file will be saved.
+        :return: Path to the saved weight file.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def to_config(self) -> Dict:
+        """
+        Converts the model configuration to a dictionary format.
+        
+        :return: Dictionary containing model configuration.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    @classmethod
+    @abstractmethod
+    def from_config(cls, config: Dict) -> 'BaseGeneratorModel':
+        """
+        Creates a model instance from a configuration dictionary.
+        
+        :param config: Dictionary containing model configuration.
+        :return: An instance of the model.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+class BaseGeneratorModel(BaseModel):
 
     def __init__(
         self,
@@ -86,26 +136,6 @@ class BaseGeneratorModel(ABC, torch.nn.Module):
         )
 
         return weight_file
-    
-    @abstractmethod
-    def to_config(self) -> Dict:
-        """
-        Converts the model configuration to a dictionary format.
-        
-        :return: Dictionary containing model configuration.
-        """
-        raise NotImplementedError("Subclasses must implement this method.")
-    
-    @classmethod
-    @abstractmethod
-    def from_config(cls, config: Dict) -> 'BaseGeneratorModel':
-        """
-        Creates a model instance from a configuration dictionary.
-        
-        :param config: Dictionary containing model configuration.
-        :return: An instance of the model.
-        """
-        raise NotImplementedError("Subclasses must implement this method.")
 
     @property
     def in_channels(self) -> int:
