@@ -194,18 +194,4 @@ class ConvNeXtUNet(BaseGeneratorModel):
         
         init_cfg = config.get("init", config)
 
-        # Optional: light provenance check on block choice
-        # blocks = config.get("blocks", {})
-        # if blocks:
-        #     # derive expected block paths from string flags in init
-        #     if init_cfg.get("decoder_up_block", "pixelshuffle") == "pixelshuffle":
-        #         expected_up = _qualname(PixelShuffle2DUpBlock)
-        #     else:
-        #         expected_up = _qualname(ConvTrans2DUpBlock)
-
-        #     if init_cfg.get("decoder_compute_block", "convnext") == "convnext":
-        #         expected_comp = _qualname(Conv2DConvNeXtBlock)
-        #     else:
-        #         expected_comp = _qualname(Conv2DNormActBlock)
-
         return cls(**init_cfg)

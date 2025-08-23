@@ -204,18 +204,4 @@ class UNet(BaseGeneratorModel):
         
         init_cfg = config.get("init", config)
 
-        # Optional: you can validate block choices if you want strict round-trip checks:
-        # blocks = config.get("blocks", {})
-        # if blocks:
-        #     expected_down = (
-        #         f"{MaxPool2DDownBlock.__module__}.{MaxPool2DDownBlock.__name__}"
-        #         if init_cfg.get("max_pool_down", False)
-        #         else f"{Conv2DDownBlock.__module__}.{Conv2DDownBlock.__name__}"
-        #     )
-        #     expected_up = (
-        #         f"{Bilinear2DUpsampleBlock.__module__}.{Bilinear2DUpsampleBlock.__name__}"
-        #         if init_cfg.get("bilinear_up", False)
-        #         else f"{ConvTrans2DUpBlock.__module__}.{ConvTrans2DUpBlock.__name__}"
-        #     )
-
         return cls(**init_cfg)
