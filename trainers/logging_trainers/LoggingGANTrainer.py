@@ -356,42 +356,6 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         # superclass implements generic logging training framework and
         # takes over from here
         super().train(logger)
-        
-    
-    def save_model(
-        self, 
-        save_path: path_type,
-        file_name_prefix: Optional[str] = None,
-        file_name_suffix: Optional[str] = None,
-        file_ext: str = '.pth',
-        best_model: bool = True
-    ):
-        """
-        Save the model to the specified path.
-        
-        :param save_path: The path to save the model.
-        """
-
-        if isinstance(save_path, str):
-            save_path = pathlib.Path(save_path)
-        
-        if isinstance(save_path, pathlib.Path):
-            if not save_path.exists():
-                save_path.mkdir(parents=True, exist_ok=True)
-        else:
-            raise TypeError("save_path must be a string or pathlib.Path")
-        
-        model_file_path = save_path / f"{file_name_prefix}_model_{file_name_suffix}{file_ext}"
-
-        torch.save(
-            self.best_model if best_model else self.model,
-            model_file_path
-        )
-
-        if model_file_path.exists():
-            return [model_file_path]
-        else:
-            return []
     
     @property
     def generator(self):

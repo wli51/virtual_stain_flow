@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import List, Callable, Dict, Optional, Union
+from typing import List, Callable, Dict, Optional, Union, Any
 import pathlib
 
 from tqdm import tqdm
@@ -213,9 +213,22 @@ class AbstractLoggingTrainer(AbstractTrainer):
         else:
             raise TypeError(
                 "Expected loss_fn to be either a torch.nn.Module or an AbstractLoss instance."
-            )    
+            )
+        
+    def log_model(
+        self,
+    ) -> Optional[Any]:
+        """
+        Log the model to the logger.
+        
+        This method should be implemented in subclasses to log the model
+        using the specific logging framework (e.g., mlflow).
+        
+        :return: Optional return value depending on the logging framework.
+        """
 
-    @abstractmethod
+        return self.model.to_config()
+
     def save_model(
         self,
         save_path: path_type,
@@ -225,6 +238,17 @@ class AbstractLoggingTrainer(AbstractTrainer):
         best_model: bool = True
     ) -> Optional[List[pathlib.Path]]:
 
-        raise NotImplementedError(
-            "save_model method must be implemented in the subclass"
+        if file_name_prefix is None:
+            file_name_prefix = 'generator'
+
+        if file_name_suffix is None:
+            file_name_suffix = 'weights_' + (
+                'best' if best_model else str(self.epoch)
+            )
+
+        path = self.model.save_weights(
+            filename=f"{file_name_prefix}_{file_name_suffix}{file_ext}",
+            dir=save_path
         )
+
+        return [path]
