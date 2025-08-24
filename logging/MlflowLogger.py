@@ -237,16 +237,12 @@ class MlflowLogger:
         if self._save_model_every_n_epochs is not None:
             if self.trainer.epoch % self._save_model_every_n_epochs == 0:
                 self._save_model_weights(
-                    prefix=f'epoch_{self.trainer.epoch}',
-                    suffix='weights',
                     artifact_path='weights',
                     best_model=False
                 )
 
         if self._save_best_model:
             self._save_model_weights(
-                prefix='best',
-                suffix='weights',
                 artifact_path='weights',
                 best_model=True
             )
@@ -272,16 +268,12 @@ class MlflowLogger:
         # Save weights to a temporary directory and log artifacts
         if self._save_model_at_train_end:
             self._save_model_weights(
-                prefix=f'epoch_{self.trainer.epoch}',
-                suffix='weights',
                 artifact_path='weights',
                 best_model=False
             )
 
         if self._save_best_model:
             self._save_model_weights(
-                prefix='best',
-                suffix='weights',
                 artifact_path='weights',
                 best_model=True
             )
