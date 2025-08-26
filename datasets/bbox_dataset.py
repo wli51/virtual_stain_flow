@@ -10,11 +10,8 @@ import pandas as pd
 import torch
 
 from .bbox_schema import BBoxSchema
-from .base_dataset import (
-    BaseImageDataset,
-    TransformType, 
-    validate_compose_transform
-)
+from .base_dataset import BaseImageDataset
+from ..transforms import TransformType, validate_compose_transform
 
 """
 

@@ -20,53 +20,7 @@ from albumentations import Compose, ImageOnlyTransform, BasicTransform
 
 from .utils import _to_hwc, _to_chw
 from .dataset_view import DatasetView, IndexState, FileState
-
-# temporary alias here for type hinting
-# will be moved/centralized to the transform module when the refactor is complete
-TransformType = Union[BasicTransform, ImageOnlyTransform, Compose]
-
-def is_valid_image_transform(
-    obj: TransformType,
-) -> bool:
-    if isinstance(obj, (BasicTransform, ImageOnlyTransform)):
-        return 'image' in obj.targets
-    else:
-        return False
-
-def validate_compose_transform(
-    obj: TransformType,
-    apply_to_target: bool = True,
-) -> Compose:
-    """
-    Validates and returns a Compose transform.
-    Likewise temporary place for this function, to be cenralized in transform module
-    when the refactor is complete.
-    
-    :param obj: The transform object to validate.
-    :param apply_to_target: Whether the transform should be applied to target images.
-    :return: Validated Compose transform.
-    :raises TypeError: If the transform is not valid.
-    """
-    add_targets = {'target': 'image'} if apply_to_target else {}
-
-    if is_valid_image_transform(obj):
-        return Compose([obj], additional_targets=add_targets)
-
-    elif isinstance(obj, Sequence):
-        if not all(is_valid_image_transform(t) for t in obj):
-            raise TypeError("All items must be ImageOnlyTransform instances.")
-        return Compose(list(obj), additional_targets=add_targets)
-
-    elif isinstance(obj, Compose):
-        if apply_to_target and 'target' not in getattr(obj, 'additional_targets', {}):
-            raise ValueError(
-                "apply_to_target=True requires 'target' in Compose.additional_targets."
-            )
-        return obj
-    else:
-        raise TypeError(
-            f"Expected Compose, ImageOnlyTransform, or Sequence[ImageOnlyTransform], got {type(obj)}."
-        )
+from ..transforms import TransformType, validate_compose_transform
 
 class BaseImageDataset(Dataset):
     

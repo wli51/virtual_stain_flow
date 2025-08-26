@@ -5,12 +5,9 @@ import torch
 from tqdm import tqdm
 from torch.utils.data import Dataset
 
-from .base_dataset import (
-    BaseImageDataset,
-    validate_compose_transform,
-    TransformType
-)
+from .base_dataset import BaseImageDataset
 from .utils import _to_hwc, _to_chw
+from ..transforms import TransformType, validate_compose_transform
 
 class CompactRAMCache(Dataset):
     def __init__(
