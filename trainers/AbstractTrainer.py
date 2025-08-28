@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import List, Callable, Dict, Optional
+from typing import List, Dict, Optional
 
 import torch
 from torch.utils.data import DataLoader, random_split
 
 from ..metrics.AbstractMetrics import AbstractMetrics
-from ..callbacks.AbstractCallback import AbstractCallback
 
 
 class AbstractTrainer(ABC):
@@ -21,7 +20,6 @@ class AbstractTrainer(ABC):
         batch_size: int = 16,
         train_for_epochs: int = 10,
         patience: int = 5,
-        callbacks: List[AbstractCallback] = None,
         metrics: Dict[str, AbstractMetrics] = None,
         device: Optional[torch.device] = None,
         early_termination_metric: str = None,
@@ -56,7 +54,6 @@ class AbstractTrainer(ABC):
         self._starting_epoch = 0
         self._train_for_epochs = train_for_epochs
         self._patience = patience
-        self.initialize_callbacks(callbacks)
         self._metrics = metrics if metrics else {}
 
         if isinstance(device, torch.device):
@@ -268,28 +265,6 @@ class AbstractTrainer(ABC):
             self.best_model = self.model.state_dict().copy()
         else:
             self.early_stop_counter += 1
-
-    def initialize_callbacks(self, callbacks):
-        """
-        Helper to iterate over all callbacks and set trainer property
-
-        :param callbacks: List of callback objects that can be invoked 
-            at epcoh start, epoch end, train start and train end
-        :type callbacks: Callback class or subclass or list of Callback class  
-        """
-
-        if callbacks is None:
-            self._callbacks = []
-            return
-
-        if not isinstance(callbacks, List):
-            callbacks = [callbacks]
-        for callback in callbacks:
-            if not isinstance(callback, AbstractCallback):
-                raise TypeError("Invalid callback object type")
-            callback._set_trainer(self)
-        
-        self._callbacks = callbacks
 
     """
     Log property
