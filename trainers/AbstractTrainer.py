@@ -105,7 +105,7 @@ class AbstractTrainer(ABC):
         self._train_metrics = defaultdict(list)
         self._val_metrics = defaultdict(list)
 
-        self.callbacks = [] # no longer supported, retained empty list for backward compatibility
+        self._callbacks = [] # no longer supported, retained empty list for backward compatibility
 
     @abstractmethod
     def train_step(self, inputs: torch.tensor, targets: torch.tensor)->Dict[str, torch.Tensor]:
