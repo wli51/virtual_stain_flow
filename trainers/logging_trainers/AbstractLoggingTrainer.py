@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader, random_split
 
 from ..AbstractTrainer import AbstractTrainer
 from ...metrics.AbstractMetrics import AbstractMetrics
-from ...callbacks.AbstractCallback import AbstractCallback
 from ...logging import MlflowLogger
 from ...losses.AbstractLoss import AbstractLoss
 
@@ -29,7 +28,6 @@ class AbstractLoggingTrainer(AbstractTrainer):
         batch_size: int = 16,
         train_for_epochs: int = 10,
         patience: int = 5,
-        callbacks: List[AbstractCallback] = None,
         metrics: Dict[str, AbstractMetrics] = None,
         device: Optional[torch.device] = None,
         early_termination_metric: str = None,
@@ -42,7 +40,6 @@ class AbstractLoggingTrainer(AbstractTrainer):
             batch_size=batch_size,
             train_for_epochs=train_for_epochs,
             patience=patience,
-            callbacks=callbacks,
             metrics=metrics,
             device=device,
             early_termination_metric=early_termination_metric,
