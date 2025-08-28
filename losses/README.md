@@ -1,5 +1,5 @@
-Here lives the loss functions used by wGaN GP
-## `losses` Module — Loss Functions
+# `virtual_stain_flow.losses`
+## Overview
 
 This module provides a collection of special **loss functions** for virtual staining model training. Generic error losses such as the `L1Loss()` from `torch` can be directly used to train simple models. 
 
@@ -11,6 +11,17 @@ The module contains a loss collection for Wasserstein Generative Adversarial Net
 
 The goal is to provide a modular and extensible framework for implementing and customizing loss functions in GAN training.
 
+---
+
+## Module Structure
+```bash
+virtual_stain_flow/
+└── losses/
+    ├── AbstractLoss.py
+    ├── loss_item_group.py
+    ├── wgan_losses.py
+    └── README.md
+```
 ---
 
 ## **Loss Functions**
