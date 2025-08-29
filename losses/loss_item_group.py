@@ -23,7 +23,19 @@ def _get_loss_name(
     else:
         raise TypeError(
             "Expected loss_fn to be either a torch.nn.Module or an AbstractLoss instance."
-        )    
+        )
+    
+def _device_tensor_from_ctx(
+        ctx: Mapping[str, torch.Tensor], val=0.0
+    ) -> torch.Tensor:
+    """
+    Safely create a tensor on the same device and dtype as tensors in ctx.
+    """
+    try:
+        t = next(iter(ctx.values()))
+    except StopIteration:
+        raise ValueError("ctx is empty; cannot infer device/dtype for zero tensor.")
+    return t.new_tensor(val)
 
 @dataclass
 class LossItem:
@@ -38,11 +50,11 @@ class LossItem:
     enabled: bool = True
     # default to compute in both phases
     compute_at: Tuple[Phase, ...] = ('train', 'eval')
+    reduction: Literal['mean', 'sum', 'none'] = 'mean'
 
     def __post_init__(self):
         if self.key is None:
             self.key = _get_loss_name(self.module)
-
         if isinstance(self.args, str):
             self.args = (self.args,)
         elif not isinstance(self.args, tuple):
@@ -55,14 +67,19 @@ class LossItem:
             ctx: Mapping[str, torch.Tensor]
         ) -> Tuple[torch.Tensor, torch.Tensor]:
         if not self.enabled:
-            zero = next(iter(ctx.values())).new_tensor(0.0)  # device-safe zero
+            zero = _device_tensor_from_ctx(ctx, 0.0)
             return zero, zero
         
-        inputs = [ctx[name] for name in self.args]
+        try:
+            inputs = [ctx[name] for name in self.args]
+        except KeyError as e:
+            missing = [k for k in self.args if k not in ctx]
+            raise KeyError(
+                f"Missing ctx keys for loss '{self.key}': {missing}") from e
 
         raw = self.module(*inputs)  # raw loss
-        if raw.dim() > 0:
-            raw = raw.mean()     # standardize to scalar if needed
+        if raw.dim() > 0 and self.reduction != 'none':
+            raw = raw.mean() if self.reduction == 'mean' else raw.sum()
         return raw, self.weight * raw
     
     def active(self, phase: Phase) -> bool:
@@ -99,22 +116,20 @@ class LossGroup:
         total = None
         logs: Dict[str, float] = {}
         
-        for it in self._items:
-            
+        for it in self._items:            
             if not it.active(phase):
                 logs[it.key] = 0.0 # defaults to zero
                 continue
-
             raw, wraw = it.compute(ctx)
-            logs[it.key] = float(raw.detach().item())
+            logs[it.key] = float(raw.detach().item()) if raw.dim() == 0 else \
+                float(raw.mean().detach().item())
             total = wraw if total is None else (total + wraw)
         
         # Incase at some point all loss items are disabled,
         # we still want to return a zero tensor for total
         # as opposed to erroring out
         if total is None:
-            any_tensor = next(iter(ctx.values()))
-            total = any_tensor.new_tensor(0.0)
+            total = _device_tensor_from_ctx(ctx, 0.0)
             
         return total, logs
     
