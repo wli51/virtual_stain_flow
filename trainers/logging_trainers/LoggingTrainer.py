@@ -5,7 +5,8 @@ from typing import Optional, List, Union, Dict, Any
 import torch
 from torch.utils.data import DataLoader, random_split
 
-from .AbstractLoggingTrainer import AbstractLoggingTrainer 
+from .AbstractLoggingTrainer import AbstractLoggingTrainer
+from ...losses.loss_item_group import LossItem, LossGroup
 
 path_type = Union[pathlib.Path, str]
 
@@ -15,12 +16,12 @@ class LoggingTrainer(AbstractLoggingTrainer):
     Prototyping for the new mlflow logger
     """
     def __init__(
-            self,
-            model: torch.nn.Module,
-            optimizer: torch.optim.Optimizer,
-            backprop_loss: Union[torch.nn.Module, List[torch.nn.Module]],
-            backprop_loss_weights: Optional[List[float]] = None,
-            **kwargs                    
+        self,
+        model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        backprop_loss: Union[torch.nn.Module, List[torch.nn.Module]],
+        backprop_loss_weights: Optional[List[float]] = None,
+        **kwargs                    
     ):
         """
         Initialize the trainer with the model, optimizer and loss function.
@@ -35,19 +36,17 @@ class LoggingTrainer(AbstractLoggingTrainer):
 
         self._model = model
         self._optimizer = optimizer
-        self._backprop_loss = backprop_loss \
-            if isinstance(backprop_loss, list) else [backprop_loss]        
-
+        backprop_loss = backprop_loss if isinstance(backprop_loss, list) else \
+            [backprop_loss]
         if backprop_loss_weights is None:
             # If no weights are provided, use equal weights for all losses
-            self._backprop_loss_weights = [1.0] * len(self._backprop_loss)
+            backprop_loss_weights = [1.0] * len(backprop_loss)
         elif isinstance(backprop_loss_weights, (int, float)):
             # If a single weight is provided, use it for all losses
-            self._backprop_loss_weights = [backprop_loss_weights] * len(self._backprop_loss)
+            backprop_loss_weights = [backprop_loss_weights] * len(backprop_loss)
         elif isinstance(backprop_loss_weights, list):
-            if len(backprop_loss_weights) == len(self._backprop_loss):
-                # If a list of weights is provided, use it as is
-                self._backprop_loss_weights = backprop_loss_weights
+            if len(backprop_loss_weights) == len(backprop_loss):
+                pass
             else:
                 raise ValueError(
                     "Length of backprop_loss_weights must match the number of loss functions."
@@ -57,23 +56,37 @@ class LoggingTrainer(AbstractLoggingTrainer):
                 "backprop_loss_weights must be a float, int, or list of floats."
             )
         
+        self._gen_loss_group = LossGroup(
+            "generator_losses",
+            [
+                LossItem(
+                    module=loss_fn,
+                    args=("target", "pred"),
+                    weight=weight
+                ) for loss_fn, weight in zip(
+                    backprop_loss,
+                    backprop_loss_weights
+                )
+            ]
+        )
+        
     """
     Overidden methods from the parent abstract class
     """
     def train_step(
             self, 
-            inputs: torch.tensor, 
-            targets: torch.tensor
+            input: torch.tensor, 
+            target: torch.tensor
         ):
         """
         Perform a single training step on batch.
 
-        :param inputs: The input image data batch
-        :param targets: The target image data batch
+        :param input: The input image data batch
+        :param target: The target image data batch
         """
 
         # move the data to the device
-        inputs, targets = inputs.to(self.device), targets.to(self.device)
+        input, target = input.to(self.device), target.to(self.device)
 
         # set the model to train
         self.model.train()
@@ -81,62 +94,57 @@ class LoggingTrainer(AbstractLoggingTrainer):
         self.optimizer.zero_grad()
 
         # Forward pass
-        outputs = self.model(inputs)
+        pred = self.model(input)
 
-        # Back propagate the loss
-        losses = {}
-        total_loss = torch.tensor(0.0, device=self.device)
-        for loss, weight in zip(
-            self._backprop_loss, 
-            self._backprop_loss_weights):
-            losses[type(loss).__name__] = loss(outputs, targets)
-            total_loss += losses[type(loss).__name__] * weight
+        ctx = {
+            'target': target,
+            'pred': pred
+        }
 
-        total_loss.backward()
+        total_gen_loss, logs = self._gen_loss_group(ctx, phase='train')
+
+        total_gen_loss.backward()
         self.optimizer.step()
 
         # Calculate the metrics outputs and update the metrics
         for _, metric in self.metrics.items():
-            metric.update(outputs, targets, validation=False)
+            metric.update(pred, target, validation=False)
         
-        return {
-            key: value.item() for key, value in losses.items()
-        }
+        return logs
     
     def evaluate_step(
             self, 
-            inputs: torch.tensor, 
-            targets: torch.tensor
+            input: torch.tensor, 
+            target: torch.tensor
         ):
         """
         Perform a single evaluation step on batch.
 
-        :param inputs: The input image data batch
-        :param targets: The target image data batch
+        :param input: The input image data batch
+        :param target: The target image data batch
         """
 
         # move the data to the device
-        inputs, targets = inputs.to(self.device), targets.to(self.device)
+        input, target = input.to(self.device), target.to(self.device)
 
         # set the model to evaluation
         self.model.eval()
 
         with torch.no_grad():
             # Forward pass
-            outputs = self.model(inputs)
+            pred = self.model(input)
 
-            # calculate the loss
-            losses = {}
-            for loss in self._backprop_loss:
-                losses[type(loss).__name__] = loss(outputs, targets)
+            ctx = {
+                'target': target,
+                'pred': pred
+            }
+            _, logs = self._gen_loss_group(ctx, phase='eval')
 
-            # Calculate the metrics outputs and update the metrics
+            # Calculate the metrics pred and update the metrics
             for _, metric in self.metrics.items():
-                metric.update(outputs, targets, validation=True)
+                metric.update(pred, target, validation=True)
         
-        return {
-            key: value.item() for key, value in losses.items()
-        }
+        return logs
     
     def train_epoch(self):
         """
