@@ -28,6 +28,11 @@ class AbstractWeightSchedule(CallbackBase, ABC):
     @abstractmethod
     def __call__(self) -> float: ...
 
+    def clone(self, with_state: bool = False) -> "AbstractWeightSchedule":
+        # with_state not used in abstract base, but could be in subclasses
+        import copy
+        return copy.deepcopy(self)
+
 class FixedWeight(AbstractWeightSchedule):
     """Wrap a constant float as a schedule to unify handling."""
     def __init__(self, value: float):
@@ -86,3 +91,10 @@ class WarmupCosine(AbstractWeightSchedule):
     def on_epoch_end(self, epoch: int, **kwargs) -> None:
         """tick function"""
         self._epoch += 1
+
+    def clone(self, with_state: bool = False) -> "WarmupCosine":
+        import copy
+        new = copy.deepcopy(self)
+        if not with_state:
+            new._epoch = 0
+        return new
