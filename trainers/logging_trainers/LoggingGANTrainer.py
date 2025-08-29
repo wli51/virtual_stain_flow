@@ -12,6 +12,7 @@ from ...losses.wgan_losses import (
     AdveserialGeneratorLoss,
     WassersteinDiscriminatorLoss 
 )
+from ...losses.dynamic_weight import WeightLike, AbstractWeightSchedule
 from ...losses.loss_item_group import LossItem, LossGroup
 
 path_type = Union[pathlib.Path, str]
@@ -32,7 +33,7 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         discriminator_optimizer: torch.optim.Optimizer,
         discriminator_loss_fn: torch.nn.Module = WassersteinDiscriminatorLoss(),
         generator_update_freq: int = 5,        
-        generator_reconstruction_loss_weights: Sequence[float] = None,
+        generator_reconstruction_loss_weights: Sequence[WeightLike] = None,
         generator_adversarial_loss_fn: Optional[torch.nn.Module] = AdveserialGeneratorLoss(),
         discriminator_update_freq: int = 1,
         gradient_penalty_loss_fn: Optional[torch.nn.Module] = GradientPenaltyLoss(),
@@ -65,9 +66,22 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
         
         if generator_reconstruction_loss_weights is None:
             generator_reconstruction_loss_weights = [1.0] * len(generator_reconstruction_loss_fn)
-        elif len(generator_reconstruction_loss_weights) != len(generator_reconstruction_loss_fn):
-            raise ValueError(
-                "generator_reconstruction_loss_weights must have the same length as generator_reconstruction_loss_fn."
+        elif isinstance(generator_reconstruction_loss_weights, (int, float)):
+            generator_reconstruction_loss_weights = [
+                float(generator_reconstruction_loss_weights)] * len(generator_reconstruction_loss_fn)
+        elif isinstance(generator_reconstruction_loss_weights, AbstractWeightSchedule):
+            generator_reconstruction_loss_weights = [
+                generator_reconstruction_loss_weights.clone(with_state=True)
+            ] * len(generator_reconstruction_loss_fn)
+        elif isinstance(generator_reconstruction_loss_weights, list):
+            if len(generator_reconstruction_loss_weights) != len(generator_reconstruction_loss_fn):
+                raise ValueError(
+                    "Length of generator_reconstruction_loss_weights must match the number of "
+                    "generator reconstruction loss functions."
+                )
+        else:
+            raise TypeError(
+                "generator_reconstruction_loss_weights must be WeightLike or a list of WeightLike."
             )
 
         self.gen_loss_group = LossGroup(

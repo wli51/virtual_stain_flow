@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader, random_split
 
 from .AbstractLoggingTrainer import AbstractLoggingTrainer
 from ...losses.loss_item_group import LossItem, LossGroup
+from ...losses.dynamic_weight import WeightLike, AbstractWeightSchedule
 
 path_type = Union[pathlib.Path, str]
 
@@ -20,7 +21,7 @@ class LoggingTrainer(AbstractLoggingTrainer):
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         backprop_loss: Union[torch.nn.Module, List[torch.nn.Module]],
-        backprop_loss_weights: Optional[List[float]] = None,
+        backprop_loss_weights: Optional[List[WeightLike]] = None,
         **kwargs                    
     ):
         """
@@ -44,6 +45,10 @@ class LoggingTrainer(AbstractLoggingTrainer):
         elif isinstance(backprop_loss_weights, (int, float)):
             # If a single weight is provided, use it for all losses
             backprop_loss_weights = [backprop_loss_weights] * len(backprop_loss)
+        elif isinstance(backprop_loss_weights, AbstractWeightSchedule):
+            backprop_loss_weights = [
+                backprop_loss_weights.clone(with_state=True) for _ in backprop_loss
+            ]
         elif isinstance(backprop_loss_weights, list):
             if len(backprop_loss_weights) == len(backprop_loss):
                 pass
