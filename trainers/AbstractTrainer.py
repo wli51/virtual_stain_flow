@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import List, Dict, Optional
+from typing import List, Sequence, Dict, Optional
 
 import torch
 from torch.utils.data import DataLoader, random_split
 
 from ..metrics.AbstractMetrics import AbstractMetrics
-
+from ..callbacks.callbacks import Callback
 
 class AbstractTrainer(ABC):
     """
@@ -24,30 +24,25 @@ class AbstractTrainer(ABC):
         device: Optional[torch.device] = None,
         early_termination_metric: str = None,
         scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
+        callbacks: Optional[Sequence[Callback]] = None,
         **kwargs,
     ):
         """
         :param dataset: The dataset to be used for training.
-        :type dataset: torch.utils.data.Dataset
         :param batch_size: The batch size for training.
-        :type batch_size: int
         :param train_for_epochs: The number of epochs for training.
-        :type train_for_epochs: int
-        :param patience: The number of epochs with no improvement after which training will be stopped.
-        :type patience: int
-        :param callbacks: List of callback functions to be executed
-        at the end of each epoch.
-        :type callbacks: list of callable
+        :param patience: The number of epochs with no improvement after which 
+            training will be stopped.
         :param metrics: Dictionary of metrics to be logged.
-        :type metrics: dict
         :param device: (optional) The device to be used for training.
-        :type device: torch.device
-        :param early_termination_metric: (optional) The metric to be tracked and used to update early 
-            termination count on the validation dataset. If None, early termination is disabled and the
+        :param early_termination_metric: (optional) The metric to be tracked 
+            and used to update early termination count on the validation 
+            dataset. If None, early termination is disabled and the
             training will run for the specified number of epochs.
-        :type early_termination_metric: str
-        :param scheduler: (optional) Learning rate scheduler to be used for training.
-        :type scheduler: torch.optim.lr_scheduler._LRScheduler
+        :param scheduler: (optional) Learning rate scheduler to be used for 
+            training.
+        :param callbacks: Sequence of callback functions to be executed
+            at the end of each epoch.
         """
 
         self._batch_size = batch_size
@@ -105,7 +100,11 @@ class AbstractTrainer(ABC):
         self._train_metrics = defaultdict(list)
         self._val_metrics = defaultdict(list)
 
-        self._callbacks = [] # no longer supported, retained empty list for backward compatibility
+        self._callbacks: List[Callback] = []
+        for callback in callbacks or []:
+            if not isinstance(callback, Callback):
+                raise TypeError("All callbacks must be instances of Callback class.")
+            self._callbacks.append(callback)
 
     @abstractmethod
     def train_step(self, inputs: torch.tensor, targets: torch.tensor)->Dict[str, torch.Tensor]:
@@ -195,7 +194,8 @@ class AbstractTrainer(ABC):
 
             # callbacks
             for callback in self.callbacks:
-                callback.on_epoch_start()
+                if hasattr(callback, "on_epoch_start"):
+                    callback.on_epoch_start()
 
             # Access all the metrics and reset them
             for _, metric in self.metrics.items():
@@ -219,7 +219,8 @@ class AbstractTrainer(ABC):
 
             # Invoke callback on epoch_end
             for callback in self.callbacks:
-                callback.on_epoch_end()
+                if hasattr(callback, "on_epoch_end"):
+                    callback.on_epoch_end()
 
             # Update early stopping
             if self._early_termination_metric is None:
