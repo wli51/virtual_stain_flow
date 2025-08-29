@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 
 from .AbstractLoss import AbstractLoss
+from .dynamic_weight import WeightLike, WeightSchedule, FixedWeight
 
 Phase = Literal['train', 'eval']
 
@@ -37,6 +38,21 @@ def _device_tensor_from_ctx(
         raise ValueError("ctx is empty; cannot infer device/dtype for zero tensor.")
     return t.new_tensor(val)
 
+def _to_schedule(w: WeightLike) -> WeightSchedule:
+    """
+    Convert a weight-like object to a WeightSchedule.
+    Handles the fixed float to callable conversion mostly and checks for
+    valid callable types.
+    """
+    if isinstance(w, (int, float)):
+        return FixedWeight(float(w))
+    if callable(w):
+        # Any callable() returning float counts; if it lacks tick handlers, that’s fine.
+        if not hasattr(w, "__call__"):
+            raise TypeError("Weight callable must be invocable with zero args.")
+        return w  # type: ignore[return-value]
+    raise TypeError(f"Unsupported weight type: {type(w).__name__}")
+
 @dataclass
 class LossItem:
     """
@@ -46,7 +62,7 @@ class LossItem:
     module: nn.Module
     args: Tuple[str, ...]
     key: Optional[str] = None
-    weight: float = 1.0
+    weight: WeightLike = 1.0
     enabled: bool = True
     # default to compute in both phases
     compute_at: Tuple[Phase, ...] = ('train', 'eval')
@@ -61,6 +77,12 @@ class LossItem:
             raise TypeError(
                 f"Expected args to be a str or tuple, got {type(self.args).__name__}"
             )
+        
+        self._weight_schedule: WeightSchedule = _to_schedule(self.weight)
+
+    def _current_weight(self) -> float:
+        w = self._weight_schedule()
+        return float(w)
     
     def compute(
             self, 
@@ -78,9 +100,10 @@ class LossItem:
                 f"Missing ctx keys for loss '{self.key}': {missing}") from e
 
         raw = self.module(*inputs)  # raw loss
+
         if raw.dim() > 0 and self.reduction != 'none':
             raw = raw.mean() if self.reduction == 'mean' else raw.sum()
-        return raw, self.weight * raw
+        return raw, self._current_weight() * raw
     
     def active(self, phase: Phase) -> bool:
         """
@@ -158,3 +181,16 @@ class LossGroup:
         keep = set(keys)
         for it in self._items:
             it.enabled = it.key in keep
+
+    def collect_weight_callbacks(self) -> List[WeightSchedule]:
+        """
+        Centralized registration method for the trainer to associate all
+        dynamic weight schedules with the trainer's tick handlers.
+        """
+        out: List[WeightSchedule] = []
+        for it in self._items:
+            sched = it._weight_schedule
+            # Only return if it *has* at least one tick method
+            if hasattr(sched, "on_epoch_end") or hasattr(sched, "on_batch_end"):
+                out.append(sched)
+        return out
