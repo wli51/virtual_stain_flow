@@ -74,6 +74,9 @@ class LoggingTrainer(AbstractLoggingTrainer):
                 )
             ]
         )
+
+        for weight_cb in self._gen_loss_group.collect_weight_callbacks():
+            self.add_callback(weight_cb)
         
     """
     Overidden methods from the parent abstract class

@@ -95,6 +95,8 @@ class LoggingGANTrainer(AbstractLoggingTrainer):
                     weight=1.0)
             ]
         )
+        for weight_cb in self.gen_loss_group.collect_weight_callbacks():
+            self.add_callback(weight_cb)
 
         self._discriminator = discriminator
         self._discriminator_optimizer = discriminator_optimizer

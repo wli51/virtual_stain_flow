@@ -269,6 +269,17 @@ class AbstractTrainer(ABC):
         else:
             self.early_stop_counter += 1
 
+    def add_callback(self, callback: Callback):
+        """
+        Add a callback to the trainer.
+
+        :param callback: The callback to be added.
+        :type callback: Callback
+        """
+        if not isinstance(callback, Callback):
+            raise TypeError("Callback must be an instance of Callback class.")
+        self._callbacks.append(callback)
+
     """
     Log property
     """
