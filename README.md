@@ -33,7 +33,7 @@ from virtual_stain_flow.datasets import BaseImageDataset
 from virtual_stain_flow.models import UNet
 from virtual_stain_flow.trainers import LoggingTrainer
 from virtual_stain_flow.transforms import MaxScaleNormalize
-from virtual_stain_flow.logging import MlflowLogger
+from virtual_stain_flow.vsf_logging import MlflowLogger
 
 # Setup dataset
 dataset = BaseImageDataset(
