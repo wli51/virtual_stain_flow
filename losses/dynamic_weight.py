@@ -88,7 +88,7 @@ class WarmupCosine(AbstractWeightSchedule):
         # After schedule: clamp at target
         return self.target
 
-    def on_epoch_end(self, epoch: int, **kwargs) -> None:
+    def on_epoch_end(self, epoch: Optional[int]=None, **kwargs) -> None:
         """tick function"""
         self._epoch += 1
 
