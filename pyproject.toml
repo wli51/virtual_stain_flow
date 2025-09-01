@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virtual_stain_flow"
+version = "0.9.0"
+requires-python = ">=3.9,<3.10"
+dependencies = [
+  "numpy",
+  "pandas",
+  "scikit-learn",
+  "matplotlib",
+  "seaborn",
+  "pillow",
+  "opencv-python",
+  "pyarrow",
+  "typing-extensions",
+  "pathlib2",
+  "inflect",
+  "jinja2",
+  "albumentations",
+  "optuna",
+  "timm",
+  "monai",
+  "pytorch-lightning",
+  "torchmetrics",
+  "mlflow",
+  "sentry-sdk",
+  "ipython",
+  "jupyter",
+  "notebook",
+]
+
+[project.optional-dependencies]
+# Choose ONE of these when installing.
+cpu = [
+  "torch>=2.1,<2.3",
+  "torchvision>=0.16,<0.19",
+  "torchaudio>=2.1,<2.3",
+]
+# CUDA 12.1 wheels — install with the extra index:
+# pip install ".[gpu-cu121]" --extra-index-url https://download.pytorch.org/whl/cu121
+gpu-cu121 = [
+  "torch==2.1.*+cu121",
+  "torchvision==0.16.*+cu121",
+  "torchaudio==2.1.*+cu121",
+]
