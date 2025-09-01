@@ -85,7 +85,7 @@ Check out the **[examples/](./examples/)** directory for complete training scrip
 ## Installation
 
 ```bash
-git clone https://github.com/your-repo/virtual_stain_flow.git
+git clone --single-branch --branch proto-v0.9.0-restructure-repo https://github.com/your-repo/virtual_stain_flow.git
 cd virtual_stain_flow
 pip install -e .
 ```
