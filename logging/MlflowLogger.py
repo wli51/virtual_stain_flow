@@ -174,6 +174,7 @@ class MlflowLogger:
         )
         # keep track of the run id
         self.__run_id = _run.info.run_id
+        print(f"MLflow run started with ID: {self.__run_id}")
         
         for key, value in self.tags.items():
             if value is not None:
