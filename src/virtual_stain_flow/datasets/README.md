@@ -23,6 +23,14 @@ It also specifies the image mode to use when reading images.
 
 The `FileState` class wraps a constructred `DatasetManifest` object and handles the loading of images from filepaths on-demand. The dataset class should call the `FileState.update(idx, input_keys, target_keys)` method to request for the images corresponding to the `idx`th sample and the input/target keys to be loaded, stacked, and accessible from `FileState.input_image_raw` and `FileState.target_image_raw` attributes.  
 
+## `BBoxSchema` & `BBoxAccessor`
+
+The `BBoxSchema` and `BBoxAccessor` classes provide a structured framework for handling bounding box annotations within image datasets. 
+
+`BBoxSchema` defines the metadata structure for bounding box datasets, specifying how spatial annotations are organized and validated. It ensures consistent formatting of bounding box coordinates, labels, and associated metadata across different dataset sources.
+
+`BBoxAccessor` serves as the interface for efficiently retrieving and manipulating bounding box data.
+
 ---
 
 ## `BaseImageDataset`
@@ -31,6 +39,19 @@ The `BaseImageDataset` class builds on `DatasetManifest` to provide a PyTorch-co
 It supports lazy loading of images, caching, and efficient handling of input and target channels.
 - Returns paired input/target image stack as numpy arrays or torch Tensors 
 - Provides methods to save and load dataset configurations as JSON files for reproducibility.
+
+---
+
+## `BBoxCropImageDataset`
+
+The `BBoxCropImageDataset` class extends `BaseImageDataset` to provide spatial cropping and rotation functionality for image datasets. 
+It integrates bounding box annotations with image data to enable region-of-interest extraction from larger images.
+- Inherits all lazy loading, caching, and PyTorch compatibility features from `BaseImageDataset`
+- Uses `BBoxSchema` and `BBoxAccessor` for structured handling of spatial annotations
+- Returns cropped and rotated paired input/target image regions as numpy arrays or torch Tensors
+- Maintains serialization capabilities including bbox annotations and schema for reproducibility
+
+---
 
 ### Usage:
 
