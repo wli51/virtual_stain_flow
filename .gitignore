@@ -1,3 +1,6 @@
+# .venv
+.venv/
+
 # images and anything under mlflow
 *.png
 examples/example_train*/*
