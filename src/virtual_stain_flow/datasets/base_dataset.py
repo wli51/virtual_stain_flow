@@ -7,9 +7,11 @@ the basic attribute structure, signature, properties to shared across all
 image datasets.
 """
 
-from typing import Dict, Sequence, Optional, Tuple, Union, Any
+from typing import List, Dict, Sequence, Optional, Tuple, Union, Any
 import json
 from pathlib import Path, PurePath
+import hashlib
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -433,18 +435,14 @@ class BaseImageDataset(Dataset):
     ) -> 'BaseImageDataset':
         """
         Create a BaseImageDataset instance from a JSON configuration file.
-        Wraps around _deserialize_config with an extra file reading step.
-
-        :param filepath: Path to the JSON configuration file.
-        :param transform: Optional transform to apply to both input and target images.
-        :param input_only_transform: Optional transform to apply only to input images.
-        :param target_only_transform: Optional transform to apply only to target images.
-        :return: BaseImageDataset instance.
         """
         filepath = Path(filepath)
         with open(filepath, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        
+
+        # Inject the config directory so _deserialize_core_config can resolve portable paths
+        config['_config_dir_sentinel__'] = str(filepath.parent)
+
         return cls._deserialize_config(
             config,
             transform=transform,
@@ -468,42 +466,52 @@ class BaseImageDataset(Dataset):
         # Reconstruct file_index DataFrame
         file_index_data = config.get('file_index', None)
         if file_index_data is None:
-            raise ValueError(
-                "Expected 'file_index' in config, "
-                "but found none or empty."
-            )
-        
+            raise ValueError("Expected 'file_index' in config, but found none or empty.")
+
         file_index = pd.DataFrame(file_index_data['records'])
-        # Convert string paths back to Path objects
-        for col in file_index.columns:
-            file_index[col] = file_index[col].apply(
-                lambda x: Path(x) if isinstance(x, str) else x
-            )
+        # Detect portable layout
+        is_portable = bool(config.get('portable', False))
+        data_dir_name = config.get('data_dir_name', 'data')
+
+        if is_portable:
+            # We need the config's on-disk location to build absolute paths.
+            # For safety this method shouldn't assume a filename; the caller
+            # (from_json_config) loads the JSON and then calls _deserialize_core_config.
+            # So we store a sentinel that from_json_config will pass in as _config_dir.
+            _config_dir = Path(config.get('_config_dir_sentinel__', '.')).resolve()
+            data_dir = (_config_dir / data_dir_name).resolve()
+
+            # Join each filename with bundle data dir
+            for col in file_index.columns:
+                file_index[col] = file_index[col].apply(
+                    lambda name: (data_dir / str(name)) if \
+                        BaseImageDataset._is_pathlike(name) else name
+                )
+        else:
+            # Non-portable: convert strings back to Paths
+            for col in file_index.columns:
+                file_index[col] = file_index[col].apply(
+                    lambda x: Path(x) if isinstance(x, str) else x
+                )
 
         pil_image_mode = config.get('pil_image_mode', 'I;16')
-        
-        # Reconstruct metadata DataFrame
+
+        # Reconstruct metadata
         metadata_data = config.get('metadata', None)
-        metadata = None
-        if metadata_data is not None:
-            metadata = pd.DataFrame(metadata_data)
-        
-        # Reconstruct object_metadata list of DataFrames
+        metadata = pd.DataFrame(metadata_data) if metadata_data is not None else None
+
+        # Reconstruct object_metadata list
         object_metadata_data = config.get('object_metadata', None)
         object_metadata = None
         if object_metadata_data is not None:
             object_metadata = []
             for records in config['object_metadata']:
-                if records:
-                    object_metadata.append(pd.DataFrame(records))
-                else:
-                    object_metadata.append(pd.DataFrame())
+                object_metadata.append(pd.DataFrame(records) if records else pd.DataFrame())
 
-        
-        input_channel_keys=config.get('input_channel_keys', None)
-        target_channel_keys=config.get('target_channel_keys', None)
-        cache_capacity=config.get('cache_capacity', None)
-                    
+        input_channel_keys = config.get('input_channel_keys', None)
+        target_channel_keys = config.get('target_channel_keys', None)
+        cache_capacity = config.get('cache_capacity', None)
+
         return {
             'file_index': file_index,
             'pil_image_mode': pil_image_mode,
@@ -549,3 +557,122 @@ class BaseImageDataset(Dataset):
             input_only_transform=input_only_transform,
             target_only_transform=target_only_transform,
         )
+
+    # ------ portable export ------
+    @staticmethod
+    def _is_pathlike(x: Any) -> bool:
+        return isinstance(x, (Path, PurePath)) or (isinstance(x, str) and len(x) > 0)
+
+    def export_portable(
+        self,
+        bundle_dir: Union[str, Path],
+        data_dir_name: str = "data",
+        config_name: str = "dataset.json",
+        dedupe: bool = True,
+        link_instead_of_copy: bool = False,
+    ) -> Path:
+        """
+        Create a fully portable dataset bundle:
+        - Copy (or hardlink) *actual* image files into <bundle_dir>/<data_dir_name>/
+        - Write a JSON config next to them with 'portable': True
+        - In the saved config, file_index holds ONLY file names (no paths)
+        - On reload, absolute paths are reconstructed relative to the config
+
+        :param bundle_dir: Output directory for the bundle.
+        :param data_dir_name: Subfolder that will contain the image files.
+        :param config_name: Name of the JSON config file to write.
+        :param dedupe: If True, avoid copying the same source file more than once.
+        :param link_instead_of_copy: If True, try to hardlink instead of copy (falls back to copy).
+        :return: Path to the written config file.
+        """
+        bundle_dir = Path(bundle_dir)
+        data_dir = bundle_dir / data_dir_name
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build a mapping from original absolute path -> portable filename
+        filename_map: Dict[str, str] = {}   # key: absolute posix path string; val: unique filename
+        used_names: set[str] = set()
+
+        def _unique_name(basename: str, src_abs: str) -> str:
+            # Ensure uniqueness across ALL columns/rows
+            if basename not in used_names:
+                used_names.add(basename)
+                return basename
+            # Append short hash of full absolute path for stability
+            stem = Path(basename).stem
+            suffix = Path(basename).suffix
+            h = hashlib.sha1(src_abs.encode("utf-8")).hexdigest()[:8]
+            candidate = f"{stem}_{h}{suffix}"
+            # final guard (extremely unlikely second collision)
+            if candidate in used_names:
+                k = 1
+                while True:
+                    candidate2 = f"{stem}_{h}_{k}{suffix}"
+                    if candidate2 not in used_names:
+                        used_names.add(candidate2)
+                        return candidate2
+                    k += 1
+            used_names.add(candidate)
+            return candidate
+
+        # Construct a "portable" copy of the file_index holding only file names
+        portable_records: List[Dict[str, Any]] = []
+        for i, row in self.file_index.iterrows():
+            new_row = {}
+            for col in self.file_index.columns:
+                src = row[col]
+                if not BaseImageDataset._is_pathlike(src):
+                    raise ValueError(
+                        f"file_index column '{col}' must contain pathlikes; "
+                        f"got {type(src)} at row {i}."
+                    )
+                src_p = Path(src)
+                if not src_p.is_file():
+                    raise FileNotFoundError(f"Missing image file: {src_p}")
+                src_abs_str = src_p.resolve().as_posix()
+
+                # dedupe by absolute path across whole dataset
+                if dedupe and src_abs_str in filename_map:
+                    fname = filename_map[src_abs_str]
+                else:
+                    fname = _unique_name(src_p.name, src_abs_str)
+                    filename_map[src_abs_str] = fname
+                    # copy / link once per unique source
+                    dst = data_dir / fname
+                    if not dst.exists():
+                        if link_instead_of_copy:
+                            try:
+                                # Hardlink for speed/storage where possible
+                                os_link = getattr(shutil, "os", None)
+                                if os_link is not None and hasattr(os_link, "link"):
+                                    os_link.link(src_p, dst)  # type: ignore[attr-defined]
+                                else:
+                                    # Fallback to hardlink via os module
+                                    import os
+                                    os.link(src_p, dst)
+                            except Exception:
+                                shutil.copy2(src_p, dst)
+                        else:
+                            shutil.copy2(src_p, dst)
+
+                new_row[col] = filename_map[src_abs_str]  # <-- ONLY the filename
+            portable_records.append(new_row)
+
+        # Build portable config dict using your existing serializer, then mutate
+        config = self._serialize_config()
+
+        # Replace file_index records with filename-only records
+        config['file_index'] = {
+            'records': portable_records,
+            'columns': list(self.file_index.columns)
+        }
+        # Mark portable + layout hints
+        config['portable'] = True
+        config['data_dir_name'] = data_dir_name
+
+        # Write config
+        config_path = bundle_dir / config_name
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+
+        return config_path
