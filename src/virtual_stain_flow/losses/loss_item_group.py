@@ -35,8 +35,8 @@ def _device_tensor_from_ctx(
     try:
         t = next(iter(ctx.values()))
     except StopIteration:
-        raise ValueError("ctx is empty; cannot infer device/dtype for zero tensor.")
-    return t.new_tensor(val)
+        raise ValueError("ctx is empty; cannot infer device/dtype for scalar.")
+    return torch.as_tensor(val, device=t.device, dtype=t.dtype)
 
 def _to_schedule(w: WeightLike) -> WeightSchedule:
     """
@@ -141,13 +141,20 @@ class LossGroup:
         
         for it in self._items:            
             if not it.active(phase):
-                logs[it.key] = 0.0 # defaults to zero
+                # logs[it.key] = 0.0 # defaults to zero
+                logs[it.key] = _device_tensor_from_ctx(ctx, 0.0)
                 continue
             raw, wraw = it.compute(ctx)
-            logs[it.key] = float(raw.detach().item()) if raw.dim() == 0 else \
-                float(raw.mean().detach().item())
+            # logs[it.key] = float(raw.detach().item()) if raw.dim() == 0 else \
+            #     float(raw.mean().detach().item())
+            red = raw if raw.dim() == 0 else raw.mean()
+            logs[it.key] = float(red.detach().item())
+
             total = wraw if total is None else (total + wraw)
         
+        # Move all logs to CPU and convert to float for logging
+        logs = {k: v.to('cpu', non_blocking=True).item() for k, v in logs.items()}
+
         # Incase at some point all loss items are disabled,
         # we still want to return a zero tensor for total
         # as opposed to erroring out

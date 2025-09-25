@@ -90,22 +90,52 @@ class GradientPenaltyLoss(AbstractLoss):
         
         batch_size = real_target_input_stack.size(0)
 
+        # eta = torch.rand(
+        #     batch_size, 1, 1, 1, 
+        #     device=self.device).expand_as(real_target_input_stack)
         eta = torch.rand(
-            batch_size, 1, 1, 1, 
-            device=self.device).expand_as(real_target_input_stack)
-        interpolated = (eta * real_target_input_stack + (1 - eta) * fake_target_input_stack).requires_grad_(True)
+            batch_size, 1, 1, 1,
+            device=real_target_input_stack.device, 
+            dtype=real_target_input_stack.dtype
+        ).expand_as(real_target_input_stack)
+
+        one = torch.as_tensor(
+            1.0, 
+            device=real_target_input_stack.device, 
+            dtype=real_target_input_stack.dtype
+        )
+        interpolated = (eta * real_target_input_stack + \
+                        (one - eta) * fake_target_input_stack).requires_grad_(True)
         prob_interpolated = discriminator(interpolated)
 
+        # want to match shape, dtype and device of prob_interpolated
+        grad_out = torch.ones_like(prob_interpolated)
+
+        # For potential automatic mixed precision (AMP) training, 
+        # ensure gradients are computed in float32
+        use_amp = prob_interpolated.dtype in (torch.float16, torch.bfloat16)
+        if use_amp:
+            prob_interpolated = prob_interpolated.float()
+            grad_out = grad_out.float()
+            interpolated_float = interpolated.float()
+            inputs_for_grad = interpolated_float
+        else:
+            inputs_for_grad = interpolated
+        
         gradients = torch.autograd.grad(
             outputs=prob_interpolated,
-            inputs=interpolated,
-            grad_outputs=torch.ones_like(prob_interpolated),
+            inputs=inputs_for_grad,
+            grad_outputs=grad_out,
             create_graph=True,
             retain_graph=True,
+            only_inputs=True,
         )[0]
 
-        gradients = gradients.view(batch_size, -1)
-        gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+        #gradients = gradients.view(batch_size, -1)
+        gradients = gradients.flatten(1)
+        # gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+        gradient_penalty = (torch.linalg.vector_norm(
+            gradients, ord=2, dim=1) - 1).pow(2).mean()
         return gradient_penalty
     
 """
