@@ -7,6 +7,8 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader, random_split
 
+
+from ..device_context_manager import with_cuda_device
 from ..AbstractTrainer import AbstractTrainer
 from ...metrics.AbstractMetrics import AbstractMetrics
 from ...vsf_logging import MlflowLogger
@@ -77,6 +79,7 @@ class AbstractLoggingTrainer(AbstractTrainer):
     Note that in this implementation the logger is passed to the train method
     as opposed to the class during initialization.
     """
+    @with_cuda_device
     def train(
         self,
         # TODO if we absolutely will do logging with mlflow no matter what

@@ -5,6 +5,7 @@ from typing import List, Sequence, Dict, Optional
 import torch
 from torch.utils.data import DataLoader, random_split
 
+from .device_context_manager import with_cuda_device
 from ..metrics.AbstractMetrics import AbstractMetrics
 from ..callbacks.callbacks import Callback
 
@@ -172,6 +173,7 @@ class AbstractTrainer(ABC):
         
         pass
 
+    @with_cuda_device
     def train(self):
         """
         Train the model for the specified number of epochs.
