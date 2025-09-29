@@ -145,15 +145,10 @@ class LossGroup:
                 logs[it.key] = _device_tensor_from_ctx(ctx, 0.0)
                 continue
             raw, wraw = it.compute(ctx)
-            # logs[it.key] = float(raw.detach().item()) if raw.dim() == 0 else \
-            #     float(raw.mean().detach().item())
             red = raw if raw.dim() == 0 else raw.mean()
             logs[it.key] = float(red.detach().item())
 
             total = wraw if total is None else (total + wraw)
-        
-        # Move all logs to CPU and convert to float for logging
-        logs = {k: v.to('cpu', non_blocking=True).item() for k, v in logs.items()}
 
         # Incase at some point all loss items are disabled,
         # we still want to return a zero tensor for total
