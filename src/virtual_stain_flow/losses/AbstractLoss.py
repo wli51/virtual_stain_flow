@@ -9,11 +9,10 @@ Adapted from https://github.com/WayScience/nuclear_speckles_analysis
 class AbstractLoss(nn.Module, ABC):
     """Abstract class for metrics"""
 
-    def __init__(self, _metric_name: str):
+    def __init__(self):
         
         super(AbstractLoss, self).__init__()
 
-        self._metric_name = _metric_name
         self._trainer = None
 
     @property
@@ -26,11 +25,6 @@ class AbstractLoss(nn.Module, ABC):
         Setter of trainer meant to be called by the trainer class during initialization
         """
         self._trainer = value
-
-    @property
-    def metric_name(self, _metric_name: str):
-        """Defines the mertic name returned by the class."""
-        return self._metric_name
 
     @abstractmethod
     def forward(self, truth: torch.Tensor, generated: torch.Tensor
