@@ -5,46 +5,68 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "virtual_stain_flow"
 version = "0.9.0"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
+
 dependencies = [
-  "numpy>=1.26,<2.1",
-  "pandas",
-  "scikit-learn",
-  "matplotlib",
-  "seaborn",
-  "pillow",
-  "opencv-python",
-  "pyarrow",
-  "typing-extensions",
-  "albumentations",
-  "optuna",
+  # core numerics / data
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "scipy>=1.12",
+  "scikit-learn>=1.5",
+
+  # plotting / viz
+  "matplotlib>=3.9",
+  "seaborn>=0.13",
+
+  # io / array
+  "pyarrow>=15",
+
+  # cv / augmentation
+  "opencv-python>=4.10,<5",
+  "albumentations>=2.0,<3",
+
+  # experiment mgmt / optimization
+  "optuna>=4.0,<5",
+  "mlflow>=3.5,<4",
+
+  # model zoo / med imaging / training loop helpers
   "timm",
   "monai",
   "pytorch-lightning",
   "torchmetrics",
-  "mlflow",
-  "ipython",
-  "jupyter",
-  "notebook",
+
+  # notebooks / interactivity
+  "ipython>=9.0",
+  "jupyter>=1.0",
+  "notebook>=7.0",
 ]
 
 [project.optional-dependencies]
-# CPU-only
+# CPU-only torch wheels (no CUDA runtime).
 cpu = [
-  "torch==2.8.*",
-  "torchvision==0.23.*",
-  "torchaudio==2.8.*",
+  "torch==2.7.*",
+  "torchvision==0.22.*",
+  "torchaudio==2.7.*",
 ]
 
-# GPU (CUDA chosen via --extra-index-url at install time)
-gpu = [
-  "torch==2.8.*",
-  "torchvision==0.23.*",
-  "torchaudio==2.8.*",
+# CUDA 12.4 stack (matches your proven environment):contentReference[oaicite:2]{index=2}
+cu124 = [
+  "torch==2.5.1",
+  "torchvision==0.20.1",
+  "torchaudio==2.5.1",
 ]
 
-# Development tools
+# CUDA 12.8 stack (intended for newer GPUs / drivers).
+# This is a policy pin: keep these 3 in sync.
+cu128 = [
+  "torch==2.7.*",
+  "torchvision==0.22.*",
+  "torchaudio==2.7.*",
+]
+
+# Dev tools (no torch inside so they work in CPU CI).
 dev = [
-  "pytest",
-  "uv",
+  "pytest>=8,<9",
+  "pre-commit>=3.5,<4",
+  "ruff>=0.6,<0.7",
 ]
