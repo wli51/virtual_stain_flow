@@ -85,12 +85,9 @@ class MlflowLogger:
         # keep track of the run so we precisely terminate 
         # this one when the user explicitly calls end_run
         self.__run_id: Optional[str] = None
-
-        # logged as experiment name
-        if experiment_name is not None:
-            mlflow.set_experiment(experiment_name)
-        else:
-            mlflow.set_experiment("Default")
+        self._experiment_name = experiment_name
+        if not self._experiment_name:
+            self._experiment_name = "Default"
 
         exp = mlflow.get_experiment_by_name(self._experiment_name)
         if exp is None:
