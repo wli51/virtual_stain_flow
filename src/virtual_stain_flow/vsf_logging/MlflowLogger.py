@@ -6,7 +6,7 @@ from typing import Union, Dict, Optional, List, Any
 
 import mlflow
 import torch
-from torch import nn
+from torch import exp, nn
 
 from ..trainers.logging_trainers import (
     AbstractLoggingTrainer)
@@ -92,6 +92,14 @@ class MlflowLogger:
         else:
             mlflow.set_experiment("Default")
 
+        exp = mlflow.get_experiment_by_name(self._experiment_name)
+        if exp is None:
+            # fallback: create explicitly
+            exp_id = mlflow.create_experiment(self._experiment_name)
+        else:
+            exp_id = exp.experiment_id
+        self.experiment_id = exp_id
+
         # logged at run start
         self.run_name = run_name
 
@@ -171,6 +179,7 @@ class MlflowLogger:
             raise TypeError("mlflow_start_run_args must be None or a dictionary.")        
         
         _run = mlflow.start_run(
+            experiment_id=self.experiment_id,
             run_name=self.run_name,
             **self._mlflow_start_run_args
         )
