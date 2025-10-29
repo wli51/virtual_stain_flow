@@ -87,8 +87,10 @@ class MlflowLogger:
         self.__run_id: Optional[str] = None
 
         # logged as experiment name
-        if experiment_name is None:
+        if experiment_name is not None:
             mlflow.set_experiment(experiment_name)
+        else:
+            mlflow.set_experiment("Default")
 
         # logged at run start
         self.run_name = run_name
