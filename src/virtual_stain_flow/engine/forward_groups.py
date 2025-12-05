@@ -37,7 +37,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 
-from .names import INPUTS, TARGETS, PREDS, GENERATOR_MODEL
+from .names import INPUTS, TARGETS, PREDS, GENERATOR_MODEL, DISCRIMINATOR_MODEL
 from .context import Context
 
 
@@ -207,3 +207,85 @@ class GeneratorForwardGroup(AbstractForwardGroup):
         Convenience property to access the generator optimizer directly.
         """
         return self._optimizers[GENERATOR_MODEL]
+
+
+class DiscriminatorForwardGroup(AbstractForwardGroup):
+    """
+    Forward group for the discriminator only.
+    Expects a concatenated image stack from ground truth input images and
+        true/predicted target images along the channel dimension. 
+    Produces single output 'p' representing discriminator scores.
+    
+    - the forward is called as:
+        preds = discriminator(stack)
+    - and evaluation as:
+        metric_value = metric_fn(preds, targets)
+
+    """
+
+    input_keys:  Tuple[str, ...] = ("stack",)
+    target_keys: Tuple[str, ...] = () # no targets needed for discriminator
+    output_keys: Tuple[str, ...] = ("p",)
+
+    def __init__(
+        self,
+        discriminator: nn.Module,
+        optimizer: Optional[optim.Optimizer] = None,
+        device: torch.device = torch.device("cpu"),
+    ):
+        super().__init__(device=device)
+
+        self._models[DISCRIMINATOR_MODEL] = discriminator
+        self._models[DISCRIMINATOR_MODEL].to(self.device)
+        self._optimizers[DISCRIMINATOR_MODEL] = optimizer
+
+    def __call__(self, train: bool, **inputs: torch.Tensor) -> Context:
+        """
+        Executes the forward pass, managing training/eval modes and optimizer steps.
+        Subclasses may override this method if needed.
+
+        :param train: Whether to run in training mode. Meant to be specified
+            by the trainer to switch between train/eval modes and determine
+            whether gradients should be computed.
+        :param inputs: Keyword arguments of input tensors.
+        """
+
+        fp_model = self.model
+        fp_optimizer = self.optimizer
+        
+        # 1) Stage and validate inputs/targets
+        ctx = Context(**self._move_tensors(inputs), **{DISCRIMINATOR_MODEL: fp_model })
+        ctx.require(self.input_keys)
+
+        # 2) Forward, with grad only when training
+        fp_model.train(mode=train)
+        train and fp_optimizer is not None and fp_optimizer.zero_grad(set_to_none=True)
+        with torch.set_grad_enabled(train):
+            model_inputs = [ctx[k] for k in self.input_keys]  # ordered
+            raw = fp_model(*model_inputs)
+            y_tuple = self._normalize_outputs(raw)
+
+        # 3) Arity check + map outputs to names
+        if len(y_tuple) != len(self.output_keys):
+            raise ValueError(
+                f"Model returned {len(y_tuple)} outputs, "
+                f"but output_keys expects {len(self.output_keys)}"
+            )
+        outputs = {k: v for k, v in zip(self.output_keys, y_tuple)}
+
+        # 5) Return enriched context (preds available for losses/metrics)
+        return ctx.add(**outputs)
+    
+    @property
+    def model(self) -> nn.Module:
+        """
+        Convenience property to access the discriminator model directly.
+        """
+        return self._models[DISCRIMINATOR_MODEL]
+
+    @property
+    def optimizer(self) -> Optional[optim.Optimizer]:
+        """
+        Convenience property to access the discriminator optimizer directly.
+        """
+        return self._optimizers[DISCRIMINATOR_MODEL]
