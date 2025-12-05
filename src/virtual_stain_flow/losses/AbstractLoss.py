@@ -28,8 +28,8 @@ class AbstractLoss(nn.Module, ABC):
         self._trainer = value
 
     @property
-    def metric_name(self, _metric_name: str):
-        """Defines the mertic name returned by the class."""
+    def metric_name(self):
+        """Defines the metric name returned by the class."""
         return self._metric_name
 
     @abstractmethod
