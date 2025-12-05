@@ -134,3 +134,37 @@ class Context:
 
     def keys(self):
         return self._store.keys()
+    
+    def pop(self, key: str, default: ContextValue = None) -> ContextValue:
+        """
+        Removes and returns the value for the given key.
+
+        :param key: The key to remove from the context.
+        :param default: The default value to return if the key is not found.
+        :return: The value associated with the key, or the default value if the key is not found.
+        """
+        return self._store.pop(key, default)
+
+    # --- Support for | operator to update context ---
+
+    def __or__(self, other: "Context") -> "Context":
+        """
+        Merges two contexts, with values from the right-hand context
+            taking precedence in case of key conflicts.
+        """
+        if not isinstance(other, Context):
+            return NotImplemented
+        new_ctx = Context(**self._store)
+        new_ctx._store.update(other._store)
+        return new_ctx
+
+    def __ror__(self, other: "Context") -> "Context":
+        """
+        Merges two contexts, with values from the left-hand context
+            taking precedence in case of key conflicts.
+        """
+        if not isinstance(other, Context):
+            return NotImplemented
+        new_ctx = Context(**other._store)
+        new_ctx._store.update(self._store)
+        return new_ctx
