@@ -1,51 +1,46 @@
 """
-/models/blocks.py
-
-Following the conventions of timm.model.convnext 
-(https://github.com/huggingface/pytorch-image-models/blob/main/timm/models/convnext.py), 
-we define a block as the smallest modular unit in image-image translation model,
-taking in a feature map tensor of shape (B, C, H, W) and returning a 
-feature map tensor of shape (B, C', H', W') where the number of
-channels C' and spatial dimensions (H', W') is determined by the block's
-implementation.
-
-Here we further make the distinction between "computational blocks"  (this file) 
-and "spatial dimension altering blocks", where the former does not change
-the spatial dimensions of the input tensor, but may change the number of channels,
-while the latter does change the spatial dimensions.
-
-This file Contains the definition of the AbstractBlock class defining the 
-behavior of a "block" and centralizing type check for Type[AbstractBlock]
-during runtime.
-Also contains the implementation of the spatial dimension preserving 
-"computational blocks" that learns from feature map tensors at a specific
-resolution to capture the context and local features of the images. This is
-commonly achieved by applying dimension preserving convolutional layers
-with kernel > 1 (usually 3), as in F/UNet architectures.  
-
-Classes:
-    AbstractBlock: Abstract base class for all blocks.
-    Conv2DConvNeXtBlock: A block that applies a sequence of ConvNeXt units 
-        with inital 2D convolution to adjust the number of channels if needed.
-    Conv2DNormActBlock: A block that applies a sequence of Conv2D -> Norm ->
-        Activation layers, commonly used in UNet architectures.
+blocks.py
+ 
+A block is a feature extraction/learning group, bundling learnable nn layers, 
+    normalizations, and activation functions, and abstracts away the specific
+    internal arrangement details (order, type, number of repetition of same sequences).
+The behavior of a block on an input feature map tensor of (B, C, H, W) can be
+    one of the two: 
+    1) returns a (B, C'', H', W') output, where the spatial dimensions (H', W') 
+        changes in a way determined by the block's implementation and 
+        number of channels may or may not change.
+        (Blocks that behave this way are defined in the `up_down_blocks.py` module)
+    2) returns a (B, C'', H, W) output, preserving the spatial dimensions
+        while the number of channels (C'') may or may not change.
+        (Blocks that behave this way are defined in this module)
 """
+
+
 from abc import ABC, abstractmethod
 from typing import Optional
 
-import timm
-import torch.nn as nn
+import torch
 from torch import Tensor
 
 from .utils import (
-    get_norm, 
     NormType,
-    get_activation,
-    ActivationType
+    ActivationType,
+    validate_network,
+)
+from .units import (
+    ConditionableUnit,
+    ChannelAdaptUnit, 
+    ConvNeXtUnit, 
+    ConvUnit,
 )
 
-class AbstractBlock(ABC, nn.Module):
 
+class AbstractBlock(ABC, torch.nn.Module):
+    """
+    Abstract base class for all neural network blocks.
+    Provides a common interface and basic validation for input and output channels,
+    as well as the number of units within the block.
+    """
     def __init__(
         self,
         in_channels: int,
@@ -109,7 +104,58 @@ class AbstractBlock(ABC, nn.Module):
     def out_w(self, in_w: int) -> int:
         return in_w    
 
-class Conv2DConvNeXtBlock(AbstractBlock):    
+
+class ComputeBlock(AbstractBlock):
+    """
+    Reusable compute block, incorporating Unit abstraction to support conditioning.
+    """
+    def __init__(
+        self,
+        in_channels: int,
+        compute_units: list[ConditionableUnit],
+        preprocess_unit: Optional[torch.nn.Module] = None,
+    ):
+        """
+        Initializes the compute block with the specified parameters.
+
+        :param in_channels: Number of input channels.
+        :param compute_units: A list of compute units for this compute block.
+        :param preprocess_unit: An optional preprocessing module applied before the compute units.
+        """    
+        
+        preprocess_unit = preprocess_unit or torch.nn.Identity()
+        n_channels = validate_network(preprocess_unit, expected_in_channels=in_channels)
+
+        if compute_units is None:
+            raise ValueError("compute_units must be provided and cannot be None.")
+        else:
+            for unit in compute_units:
+                n_channels = validate_network(unit, expected_in_channels=n_channels)
+
+        super().__init__(
+            in_channels=in_channels,
+            out_channels=n_channels,
+            num_units = len(compute_units)
+        )
+
+        self.preprocess_unit = preprocess_unit
+        self.units = torch.nn.ModuleList([
+            unit
+            for i, unit in enumerate(compute_units)
+        ])
+
+    def forward(
+        self, 
+        x: Tensor,
+        **kwargs: dict,
+    ) -> Tensor:
+        x = self.preprocess_unit(x)
+        for unit in self.units:
+            x = unit(x, **kwargs)
+        return x
+
+
+class Conv2DConvNeXtBlock(ComputeBlock):
     """
     A ConvNeXt block that applies a sequence of ConvNeXt units 
     with inital 2D convolution to adjust the number of channels if needed.
@@ -146,86 +192,41 @@ class Conv2DConvNeXtBlock(AbstractBlock):
         
         out_channels = out_channels or in_channels
 
-        super().__init__(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            num_units=num_units
-        )
-
-        layers = []
-
         if in_channels != out_channels:
-            # insert a spatial dimension preserving convolution
+            # insert a spatial dimension preserving 1x1 convolution
             # operation to adjust the number of channels because
             # ConvNeXtBlock expects same input and output channels
             # if the in/out channels are matched, this won't be added. 
-            layers.append(
-                nn.Conv2d(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    kernel_size=conv_kernel_size,
-                    stride=1, # fixed
-                    padding='same' # ensure spatial dimensions are preserved
-                )
+            preprocess_unit = ChannelAdaptUnit(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                conv_kernel_size=conv_kernel_size,
+                norm_type=norm_type,
+                activation_type='none'
             )
-            # timm.models.convnext.ConvNeXtStage adds a normalization
-            # BEFORE the initial 2D convolution, which in practice has 
-            # made models with ConvNeXtStage blocks in decoder hard to train.
-            # Here we add the normalization AFTER the initial 2D convolution
-            # right before the ConvNeXtBlock units.
-            layers.append(
-                get_norm(
-                    num_features=out_channels,
-                    norm_type=norm_type
-                )
-            )
+        else:
+            preprocess_unit = None
 
-        # Add ConvNeXtBlock in sequence.
-        # Under the hood a single ConvNeXtBlock is defined by:
-        # Depthwise Conv -> LayerNorm -> 1x1 Conv -> GELU -> 1x1 Conv
-        # note that the Depthwise Conv is intended to capture the 
-        # channel-wise spatial features with large kernel_size/receptive
-        # field recommended by Liu et al. (2022). The 1x1 convs are 
-        # responsbile for channel mixing and non-linearity following
-        # spatial feature extraction. This effectively separates the
-        # spatial and channel-wise feature extraction computations, 
-        # contrasting with the standard Conv2D whose kernel does both
-        # simultaneously.
-        layers = layers + [
-            timm.models.convnext.ConvNeXtBlock(
-                in_chs=out_channels, # same input/output channels
-                out_chs=out_channels, 
+        units = [
+            ConvNeXtUnit(
+                in_channels=out_channels, 
                 kernel_size=convnext_kernel_size,
                 stride=1, # fixed
                 ls_init_value=None,
-                # this is a switch between 2 equivalent implementations
-                # but with contrasting speed <-> model size tradeoffs.
-                # here by setting conv_mlp=True we use the faster but 
-                # larger model implementation 
-                conv_mlp=True, 
-                use_grn=True, # GlobalResponseNorm for mlp layers
-                norm_layer=timm.layers.LayerNorm2d, 
             ) for _ in range(num_units)
         ]
 
-        self.network = nn.Sequential(*layers)
-
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Forward pass of the block.
-        
-        :param x: Input tensor. Should have shape (B, C, H, W)
-        :return: Output tensor after passing through the block. 
-            Should have shape (B, C', H, W) where C' is the output channels,
-            and H and W are unchanged input spatial dimensions.
-        """
-        return self.network(x)
+        super().__init__(
+            in_channels = in_channels,
+            preprocess_unit = preprocess_unit,
+            compute_units = units,
+        )
 
 
-class Conv2DNormActBlock(AbstractBlock):
+class Conv2DNormActBlock(ComputeBlock):
     """
     A Conv2D block that applies a sequence of Conv2D -> Norm -> Activation
-    layers, commonly used in UNet architectures.
+        layers, commonly used in UNet architectures.
     """
     def __init__(
         self,
@@ -248,51 +249,21 @@ class Conv2DNormActBlock(AbstractBlock):
         """
 
         out_channels = out_channels or in_channels
-
-        super().__init__(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            num_units=num_units
-        )
-
         mid_channels = [out_channels] * (num_units - 1)
 
-        layers = []
-
-        for _in, _out in zip(
-            [in_channels] + mid_channels, 
-            mid_channels + [out_channels]
-        ):
-            # standard Conv2D -> Norm -> Activation sequence
-            # used widely in UNets (with BatchNorm and ReLU).
-            layers.append(
-                nn.Conv2d(
-                    in_channels=_in,
-                    out_channels=_out,
-                    kernel_size=3, # fixed for now
-                    stride=1, # fixed
-                    padding='same' # indicate spatial preserving unit
-                )
+        compute_units = torch.nn.ModuleList([
+            ConvUnit(
+                in_channels=_in,
+                out_channels=_out,
+                norm_type=norm_type,
+                activation_type=act_type,
             )
-            layers.append(
-                get_norm(
-                    num_features=_out,
-                    norm_type=norm_type
-                )
-            )
-            layers.append(
-                get_activation(act_type)
-            )
+            for _in, _out in
+            zip([in_channels] + mid_channels, [out_channels] + mid_channels)
+        ])
 
-        self.network = nn.Sequential(*layers)
-
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Forward pass of the block.
-        
-        :param x: Input tensor. Should have shape (B, C, H, W)
-        :return: Output tensor after passing through the block. 
-            Should have shape (B, C', H, W) where C' is the output channels,
-            and H and W are unchanged input spatial dimensions.
-        """
-        return self.network(x)
+        super().__init__(
+            in_channels = in_channels,
+            compute_units = compute_units,
+            preprocess_unit = None
+        )
