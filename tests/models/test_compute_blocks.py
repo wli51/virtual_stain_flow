@@ -1,4 +1,3 @@
-import timm
 import torch
 import pytest
 import torch.nn as nn
@@ -69,13 +68,7 @@ class TestConv2DConvNeXtBlock:
 			in_channels=3, out_channels=8, num_units=num_units
 		)
 
-		convnext_units = [
-			layer
-			for layer in block.network
-			if isinstance(layer, timm.models.convnext.ConvNeXtBlock)
-		]
-
-		assert len(convnext_units) == num_units
+		assert len(block.units) == num_units
 
 	def test_convnext_block_exposes_abstract_block_metadata_and_dimensions(self):
 		input_tensor = torch.randn(2, 3, 12, 18)
@@ -121,11 +114,7 @@ class TestConv2DNormActBlock:
 			in_channels=3, out_channels=8, num_units=num_units
 		)
 
-		convolutions = [
-			layer for layer in block.network if isinstance(layer, nn.Conv2d)
-		]
-
-		assert len(convolutions) == num_units
+		assert len(block.units) == num_units
 
 	@pytest.mark.parametrize(
 		("norm_type", "expected_type"),
@@ -140,9 +129,9 @@ class TestConv2DNormActBlock:
 	):
 		block = Conv2DNormActBlock(in_channels=3, norm_type=norm_type)
 
-		normalization_layers = block.network[1::3]
+		for unit in block.units:
+			assert isinstance(unit.norm, expected_type)
 
-		assert all(isinstance(layer, expected_type) for layer in normalization_layers)
 
 	@pytest.mark.parametrize(
 		("act_type", "expected_type"),
@@ -159,9 +148,8 @@ class TestConv2DNormActBlock:
 	):
 		block = Conv2DNormActBlock(in_channels=3, act_type=act_type)
 
-		activation_layers = block.network[2::3]
-
-		assert all(isinstance(layer, expected_type) for layer in activation_layers)
+		for unit in block.units:
+			assert isinstance(unit.activation, expected_type)
 
 	def test_norm_act_block_exposes_abstract_block_metadata_and_dimensions(self):
 		input_tensor = torch.randn(2, 3, 12, 18)
