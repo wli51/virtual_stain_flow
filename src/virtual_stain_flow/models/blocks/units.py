@@ -62,9 +62,20 @@ class ChannelAdaptUnit(ConditionableUnit):
         self,
         in_channels: int,
         out_channels: int,
+        conv_kernel_size: int = 1,
         norm_type: NormType = 'layer',
         activation_type: ActivationType = 'none',
     ) -> None:
+        """
+        Initializes a ChannelAdaptUnit.
+
+        :param in_channels: Number of input channels.
+        :param out_channels: Number of output channels.
+        :param conv_kernel_size: Kernel size for the convolution that adapts the channels.
+            Default is 1 (identity convolution).
+        :param norm_type: Type of normalization to apply. Default is 'layer'.
+        :param activation_type: Type of activation function to apply. Default is 'none'.
+        """
         super().__init__(conditioner=None)
         self._in_channels = in_channels
         self._out_channels = out_channels
@@ -72,7 +83,7 @@ class ChannelAdaptUnit(ConditionableUnit):
         self.adapt = torch.nn.Conv2d(
             in_channels=in_channels,
             out_channels=out_channels,
-            kernel_size=1,
+            kernel_size=conv_kernel_size,
             stride=1,
             padding='same'
         )
@@ -110,6 +121,17 @@ class ConvUnit(ConditionableUnit):
         norm_type: NormType = 'batch',
         activation_type: ActivationType = 'relu'
     ) -> None:
+        """
+        Initializes a ConvUnit.
+
+        :param in_channels: Number of input channels.
+        :param out_channels: Number of output channels. If None, defaults to in_channels.
+        :param kernel_size: Size of the convolutional kernel. Default is 3.
+        :param stride: Stride for the convolution. Default is 1.
+        :param padding: Padding for the convolution. Default is 1.
+        :param norm_type: Type of normalization to apply. Default is 'batch'.
+        :param activation_type: Type of activation function to apply. Default is 'relu'.
+        """
         super().__init__(conditioner=None)
         self._in_channels = in_channels
         self._out_channels = out_channels if out_channels is not None else in_channels
