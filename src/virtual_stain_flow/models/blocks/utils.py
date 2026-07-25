@@ -5,8 +5,9 @@ Utility functions for model normalization and activation layers retrieval,
 also centralizing input type checking and property definitions for blocks.
 """
 
-from typing import Literal
+from typing import Any, Literal, Optional
 
+import torch
 import torch.nn as nn
 
 NormType = Literal['batch', 'layer', 'none']
@@ -91,3 +92,39 @@ def get_activation(
         return nn.Identity()
     else:
         raise ValueError(f"Unsupported activation: {act_type!r}")
+
+
+def validate_network(
+    network: Any,
+    expected_in_channels: Optional[int] = None,
+    strict: bool = True
+) -> int:
+    """
+    """
+
+    if not isinstance(network, torch.nn.Module):
+        raise ValueError(
+            "Expected network to be an instance of torch.nn.Module, "
+            f"but got {type(network).__name__}"
+        )
+
+    if isinstance(network, torch.nn.Identity):
+        return expected_in_channels
+    
+    
+    if hasattr(network, 'in_channels'):
+        if expected_in_channels is not None and network.in_channels != expected_in_channels:
+            raise ValueError(
+                f"Expected network with in_channels={expected_in_channels}, but got {network.in_channels}"
+            )
+    elif strict:
+        raise ValueError(
+            "Expected network to have attribute 'in_channels', but it is missing."
+        )
+    
+    if hasattr(network, 'out_channels'):
+        return network.out_channels    
+    else:
+        raise ValueError(
+            "Expected network to have attribute 'out_channels', but it is missing."
+        )

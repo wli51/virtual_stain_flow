@@ -1,25 +1,18 @@
 """
-/models/up_down_blocks.py
-
-Following the conventions of timm.model.convnext 
-(https://github.com/huggingface/pytorch-image-models/blob/main/timm/models/convnext.py), 
-we define a block as the smallest modular unit in image-image translation model,
-taking in a feature map tensor of shape (B, C, H, W) and returning a 
-feature map tensor of shape (B, C', H', W') where the number of
-channels C' and spatial dimensions (H', W') is determined by the block's
-implementation.
-
-Here we further make the distinction between "computational blocks" and 
-"spatial dimension altering blocks" (this file), where the former does not change
-the spatial dimensions of the input tensor, but may change the number of channels,
-while the latter does change the spatial dimensions.
-
-This file Contains the implementation of the "spatial dimension altering blocks" that
-alter the spatial dimension of the input tensor on top of potential channel
-count number changes. These blocks are commonly used in UNet-like architectures
-to reduce and increase resolution of feature map tensors (images), in conjunction
-with the spatial dimension preserving blocks, implemented in blocks.py, to 
-capture the context and local features of hte images at differing resolutions.
+up_down_blocks.py
+ 
+A block is a feature extraction/learning group, bundling learnable nn layers, 
+    normalizations, and activation functions, and abstracts away the specific
+    internal arrangement details (order, type, number of repetition of same sequences).
+The behavior of a block on an input feature map tensor of (B, C, H, W) can be
+    one of the two: 
+    1) returns a (B, C'', H', W') output, where the spatial dimensions (H', W') 
+        changes in a way determined by the block's implementation and 
+        number of channels may or may not change.
+        (Blocks that behave this way are defined in this module)
+    2) returns a (B, C'', H, W) output, preserving the spatial dimensions
+        while the number of channels (C'') may or may not change.
+        (Blocks that behave this way are defined in the `blocks.py` module)
 
 Classes:
     AbstractDownBlock: Abstract base class for downsampling blocks.
