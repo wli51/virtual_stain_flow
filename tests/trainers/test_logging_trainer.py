@@ -238,6 +238,37 @@ class TestSingleGeneratorTrainerSaveModel:
             assert all(isinstance(p, pathlib.Path) for p in paths)
 
 
+class TestSingleGeneratorTrainerTrainEpoch:
+    """Tests for SingleGeneratorTrainer.train_epoch method."""
+
+    def test_resets_loss_group_before_first_batch(
+        self, single_generator_trainer, monkeypatch
+    ):
+        loss_group = single_generator_trainer.loss_groups["main"]
+        original_reset = loss_group.reset
+        reset_calls = 0
+
+        def reset():
+            nonlocal reset_calls
+            reset_calls += 1
+            original_reset()
+
+        monkeypatch.setattr(loss_group, "reset", reset)
+
+        def train_step(_inputs, _targets):
+            assert reset_calls == 1
+            return {"loss": 0.0}
+
+        monkeypatch.setattr(
+            single_generator_trainer, "_update_epoch_progress", lambda **_: None
+        )
+        monkeypatch.setattr(single_generator_trainer, "train_step", train_step)
+
+        single_generator_trainer.train_epoch()
+
+        assert reset_calls == 1
+
+
 class TestSingleGeneratorTrainerTrainStep:
     """Tests for SingleGeneratorTrainer.train_step method."""
 

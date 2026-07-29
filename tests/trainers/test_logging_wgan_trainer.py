@@ -5,6 +5,38 @@ Tests for LoggingWGANTrainer train_step and evaluate_step methods
 import torch
 
 
+class TestLoggingWGANTrainerTrainEpoch:
+    """Tests for LoggingWGANTrainer.train_epoch method."""
+
+    def test_resets_all_loss_groups_before_first_batch(
+        self, wgan_trainer, monkeypatch
+    ):
+        reset_calls = {
+            name: 0 for name in wgan_trainer.loss_groups
+        }
+        for name, loss_group in wgan_trainer.loss_groups.items():
+            original_reset = loss_group.reset
+
+            def reset(name=name, original_reset=original_reset):
+                reset_calls[name] += 1
+                original_reset()
+
+            monkeypatch.setattr(loss_group, "reset", reset)
+
+        def train_step(_inputs, _targets):
+            assert all(count == 1 for count in reset_calls.values())
+            return {"loss": 0.0}
+
+        monkeypatch.setattr(
+            wgan_trainer, "_update_epoch_progress", lambda **_: None
+        )
+        monkeypatch.setattr(wgan_trainer, "train_step", train_step)
+
+        wgan_trainer.train_epoch()
+
+        assert all(count == 1 for count in reset_calls.values())
+
+
 class TestLoggingWGANTrainerTrainStep:
     """Tests for LoggingWGANTrainer.train_step method."""
 
