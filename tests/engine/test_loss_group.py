@@ -1,6 +1,7 @@
 import pytest
 import torch
 import torch.nn as nn
+from torchmetrics import MeanMetric
 
 from virtual_stain_flow.engine.loss_group import LossItem, LossGroup
 
@@ -125,6 +126,15 @@ class TestLossItem:
         with pytest.raises(ValueError, match="Missing required arguments"):
             item(train=True, **sample_inputs)
 
+    def test_loss_item_reset(self):
+        # test behavior in representative lightning stateful metric 
+        metric = MeanMetric()
+        metric.update(torch.tensor([1.0, 3.0]))
+
+        LossItem(module=metric, args="pred").reset()
+
+        assert metric.update_count == 0
+
 
 class TestLossGroup:
     """Test LossGroup functionality."""
@@ -211,6 +221,19 @@ class TestLossGroup:
         # Only loss1 should compute during validation
         assert logs_val["loss1"] != 0.0
         assert logs_val["loss2"] == 0.0
+
+    def test_loss_group_reset(self):
+        metrics = [MeanMetric(), MeanMetric()]
+        for metric in metrics:
+            metric.update(torch.tensor(1.0))
+        group = LossGroup([
+            LossItem(module=module, key=f"loss{index}")
+            for index, module in enumerate(metrics)
+        ])
+
+        group.reset()
+
+        assert all(metric.update_count == 0 for metric in metrics)
 
 
 class TestDeviceManagement:
