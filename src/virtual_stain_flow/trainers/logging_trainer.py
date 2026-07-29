@@ -83,6 +83,7 @@ class SingleGeneratorTrainer(AbstractTrainer):
         super().__init__(
             model=self._forward_group.model,
             optimizer=self._forward_group.optimizer, # type: ignore
+            device=device,
             **kwargs
         )
 
