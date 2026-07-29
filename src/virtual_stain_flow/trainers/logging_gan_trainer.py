@@ -85,7 +85,8 @@ class BaseGANTrainer(AbstractTrainer):
         super().__init__(
             model=generator, # register generator as main model for early stopping
             optimizer=generator_optimizer,
-            losses=generator_loss_group,
+            #losses=generator_loss_group,
+            loss_groups=[generator_loss_group, discriminator_loss_group],
             **kwargs
         )
 

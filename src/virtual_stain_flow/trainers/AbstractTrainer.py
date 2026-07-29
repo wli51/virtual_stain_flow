@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 
 from .trainer_protocol import TrainerProtocol
 from ..metrics.AbstractMetrics import AbstractMetrics
+from ..engine.loss_group import LossGroup
 from ..engine.progress import Progress
 from ..datasets.data_split import default_random_split
 
@@ -32,6 +33,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         dataset: Optional[torch.utils.data.Dataset] = None,
+        loss_groups: Optional[List[LossGroup]] = None,
         train_loader: Optional[DataLoader] = None,
         val_loader: Optional[DataLoader] = None,
         test_loader: Optional[DataLoader] = None,
@@ -55,6 +57,11 @@ class AbstractTrainer(TrainerProtocol, ABC):
         :param dataset: (optional) The dataset to be used for training.
             Either dataset or train_loader, val_loader, test_loader
             must be provided.
+        :param loss_groups: (optional) List of LossGroup objects containing all the 
+            loss items to be used for training. The abstract trainer does
+            not manage loss computation or orchestration, and only uses
+            this as a handle for resetting stateful loss modules per end of
+            training epoch.
         :param train_loader: (optional) DataLoader for training data.
         :param val_loader: (optional) DataLoader for validation data.
         :param test_loader: (optional) DataLoader for test data.
@@ -77,6 +84,10 @@ class AbstractTrainer(TrainerProtocol, ABC):
         self._model = model
         self._optimizer = optimizer
         self._metrics = metrics if metrics else {}
+
+        if loss_groups is not None and not all(isinstance(lg, LossGroup) for lg in loss_groups):
+            raise TypeError("loss_groups must be a list of LossGroup instances or None.")
+        self._loss_groups = loss_groups
 
         if isinstance(device, torch.device):
             self._device = device
@@ -225,7 +236,11 @@ class AbstractTrainer(TrainerProtocol, ABC):
 
         :returns: A dictionary of average loss values for the epoch.
         """
+
         losses = defaultdict(list)
+        if self._loss_groups is not None:
+            for lg in self._loss_groups:
+                lg.reset()
 
         batch_idx = 0
         for inputs, targets in self._train_loader:
@@ -242,7 +257,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
             for key, value in batch_loss.items():
                 losses[key].append(value)
 
-            batch_idx += 1            
+            batch_idx += 1           
 
         return {
             key: sum(values) / len(values) for key, values in losses.items()

@@ -114,12 +114,17 @@ class LossItem:
                 f"Missing required arguments {missing} for loss computation."
             )
         
-        if hasattr(self.module, 'to'):
-            self.module.to(self.device)
-        
         raw = self.module(*[inputs[arg] for arg in self.args])
 
         return raw, raw * _scalar_from_ctx(self.weight, inputs)
+
+    def reset(self) -> None:
+        """
+        Reset all loss modules within the group that have a reset method.
+        Intended use is by `LossGroup` to reset all contained loss items.
+        """
+        if hasattr(self.module, 'reset'):
+            self.module.reset()
     
     def get_config(self) -> Dict[str, Any]:
         """
@@ -152,6 +157,16 @@ class LossGroup:
     @property
     def item_names(self) -> List[Optional[str]]:
         return [item.key for item in self.items]
+
+    def __post_init__(self) -> None:
+        """
+        Post-initialization to ensure all items have unique keys.
+        """
+        if not all([item is None or isinstance(item, LossItem) for item in self.items]):
+            raise TypeError("All items in a LossGroup must be instances of LossItem or None.")
+        keys = [item.key for item in self.items]
+        if len(keys) != len(set(keys)):
+            raise ValueError("All LossItem keys must be unique within a LossGroup.")
     
     def __call__(
         self,
@@ -188,6 +203,14 @@ class LossGroup:
             total += weighted
         
         return total, logs
+
+    def reset(self) -> None:
+        """
+        Reset all loss modules within the group that have a reset method.
+        Intended use is by `LossGroup` to reset all contained loss items.
+        """
+        for item in self.items:
+            item.reset()
     
     def get_config(self) -> List[Dict[str, Any]]:
         """

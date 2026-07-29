@@ -84,6 +84,7 @@ class SingleGeneratorTrainer(AbstractTrainer):
             model=self._forward_group.model,
             optimizer=self._forward_group.optimizer, # type: ignore
             device=device,
+            loss_groups=[self._loss_group],
             **kwargs
         )
 
