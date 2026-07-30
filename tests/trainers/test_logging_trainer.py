@@ -237,6 +237,40 @@ class TestSingleGeneratorTrainerSaveModel:
             assert isinstance(paths, list)
             assert all(isinstance(p, pathlib.Path) for p in paths)
 
+    def test_save_model_uses_best_model_snapshot(
+        self, mock_model_with_save, mock_optimizer, simple_loss,
+        train_dataloader, val_dataloader
+    ):
+        """Test that best-model saving does not use the mutated live model."""
+        from virtual_stain_flow.trainers.logging_trainer import SingleGeneratorTrainer
+
+        trainer = SingleGeneratorTrainer(
+            model=mock_model_with_save,
+            optimizer=mock_optimizer,
+            losses=simple_loss,
+            device=torch.device('cpu'),
+            train_loader=train_dataloader,
+            val_loader=val_dataloader,
+            batch_size=2
+        )
+        trainer._patience = 1
+        trainer.update_early_stop_counter()
+
+        best_weight = trainer.best_model.conv.weight.detach().clone()
+        with torch.no_grad():
+            trainer.model.conv.weight.add_(1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = trainer.save_model(
+                save_path=pathlib.Path(tmpdir),
+                best_model=True
+            )
+
+            saved_state = torch.load(paths[0], weights_only=True)
+
+        assert torch.equal(saved_state['conv.weight'], best_weight)
+        assert not torch.equal(saved_state['conv.weight'], trainer.model.conv.weight)
+
 
 class TestSingleGeneratorTrainerTrainEpoch:
     """Tests for SingleGeneratorTrainer.train_epoch method."""

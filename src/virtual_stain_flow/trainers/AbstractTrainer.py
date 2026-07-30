@@ -4,6 +4,7 @@ AbstractTrainer.py
 
 from __future__ import annotations
 import pathlib
+import copy
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Dict, Optional, Literal, List, TYPE_CHECKING
@@ -116,7 +117,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
         **kwargs
     ):
         # Early stopping state
-        self._best_model = None
+        self._best_model = self.model
         self._best_loss = float("inf")
         self._early_stop_counter = 0
         self._early_termination_metric = early_termination_metric
@@ -414,7 +415,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
         # When early termination is disabled, 
         # the best model is updated with the current model
         if not self._early_termination and early_term_metric is None:
-            self.best_model = self.model.state_dict().copy()
+            self.best_model = copy.deepcopy(self.model)
             return False
         
         reset_counter = (early_term_metric < self.best_loss) \
@@ -424,7 +425,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
         if reset_counter:
             self.best_loss = early_term_metric
             self.early_stop_counter = 0
-            self.best_model = self.model.state_dict().copy()
+            self.best_model = copy.deepcopy(self.model)
         else:
             self.early_stop_counter += 1
 

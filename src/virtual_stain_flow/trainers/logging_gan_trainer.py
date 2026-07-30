@@ -216,7 +216,12 @@ class BaseGANTrainer(AbstractTrainer):
                 'best' if best_model else str(self.epoch)
             )
 
-        gen_path = self.model.save_weights(
+        model = (
+            self.best_model
+            if best_model and self.best_model is not None
+            else self.model
+        )
+        gen_path = model.save_weights(
             filename=f"generator_{file_name_suffix}{file_ext}",
             dir=save_path
         )

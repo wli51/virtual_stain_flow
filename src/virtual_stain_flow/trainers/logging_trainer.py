@@ -171,7 +171,12 @@ class SingleGeneratorTrainer(AbstractTrainer):
                 'best' if best_model else str(self.epoch)
             )
 
-        path = self.model.save_weights(
+        model = (
+            self.best_model
+            if best_model and self.best_model is not None
+            else self.model
+        )
+        path = model.save_weights(
             filename=f"{file_name_prefix}_{file_name_suffix}{file_ext}",
             dir=save_path
         )
