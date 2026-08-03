@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.8] - 2026-07-29
+
+### Fixed
+
+#### Passing of device to `AbstractTrainer` (`virtual_stain_flow/trainers/`)
+- Previously neither `virtual_stain_flow.trainers.LoggingWGANTrainer` nor `virtual_stain_flow.trainers.SingleGeneratorTrainer` passes `device` to `virtual_stain_flow.trainers.AbstractTrainer`,
+which leads to `AbstractTrainer` re-discovering arbitrary cuda devices that may be incorrect.
+- This bug doesn't impact anything internal because `AbstractTrainer` doesn't do anything with the given `device` except expose it as property. 
+However, any operations downstream of trainer attempts to acquire `device` from trainer property might obtain a torch device not matching the real device of model, loss and data. 
+This fix addresses this problem.  
+
+#### Stateful loss reset (`virtual_stain_flow/trainers/`, (`virtual_stain_flow/engine/`))
+- `virtual_stain_flow/trainers/` now resets loss items during `train()` through `virtual_stain_flow.engine.loss_groups`, which will clear the internal state of stateful torch modules specified as training loss.
+- Earlier example trainings using `torchmetrics.image.MultiScaleStructuralSimilarityIndexMeasure`, a stateful object, 
+remain fine even without the fix, because train losses are computed with `forward()` excluisvely and loss module `forward` implementations are generally batch local. 
+---
+
 ## [0.4.7] - 2026-07-28
 
 ### Fixed
