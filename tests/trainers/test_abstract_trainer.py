@@ -698,6 +698,65 @@ class TestEarlyTermination:
         assert trainer.best_model is not None
         assert should_stop is False
 
+    def test_default_tracks_first_validation_loss_without_stopping(
+        self, trainer_with_loaders
+    ):
+        trainer = trainer_with_loaders
+        trainer._patience = 1
+        trainer.update_loss(torch.tensor(0.5), "first_loss", validation=True)
+        trainer.update_loss(torch.tensor(0.1), "second_loss", validation=True)
+
+        should_stop = trainer.update_early_stop_counter()
+        best_parameters = [
+            parameter.detach().clone()
+            for parameter in trainer.best_model.parameters()
+        ]
+
+        assert trainer.best_loss == torch.tensor(0.5)
+        assert trainer.early_stop_counter == 0
+        assert should_stop is False
+
+        with torch.no_grad():
+            for parameter in trainer.model.parameters():
+                parameter.add_(1)
+        trainer.update_loss(torch.tensor(0.7), "first_loss", validation=True)
+        trainer.update_loss(torch.tensor(0.01), "second_loss", validation=True)
+
+        should_stop = trainer.update_early_stop_counter()
+
+        assert trainer.best_loss == torch.tensor(0.5)
+        assert should_stop is False
+        assert all(
+            torch.equal(saved, current)
+            for saved, current in zip(
+                best_parameters, trainer.best_model.parameters()
+            )
+        )
+
+    def test_max_mode_improves_from_initial_state(
+        self, minimal_model, minimal_optimizer,
+        train_dataloader, val_dataloader
+    ):
+        trainer = MinimalTrainerRealization(
+            model=minimal_model,
+            optimizer=minimal_optimizer,
+            train_loader=train_dataloader,
+            val_loader=val_dataloader,
+            device=torch.device('cpu'),
+            early_termination_metric='accuracy',
+            early_termination_mode='max'
+        )
+        trainer._patience = 2
+        trainer.update_metrics(
+            torch.tensor(0.2), "accuracy", validation=True
+        )
+
+        should_stop = trainer.update_early_stop_counter()
+
+        assert trainer.best_loss == torch.tensor(0.2)
+        assert trainer.early_stop_counter == 0
+        assert should_stop is False
+
 
 class TestProperties:
     """Test that AbstractTrainer dataset properties work correctly."""

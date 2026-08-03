@@ -4,7 +4,6 @@ AbstractTrainer.py
 
 from __future__ import annotations
 import pathlib
-import copy
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Dict, Optional, Literal, List, TYPE_CHECKING
@@ -14,6 +13,12 @@ import torch
 from torch.utils.data import DataLoader
 
 from .trainer_protocol import TrainerProtocol
+from .early_stopping import (
+    collect_default_validation_loss,
+    collect_early_stop_metric,
+    update_early_stop_state,
+)
+from .model_saving import clone_model
 from ..metrics.AbstractMetrics import AbstractMetrics
 from ..engine.loss_group import LossGroup
 from ..engine.progress import Progress
@@ -118,7 +123,12 @@ class AbstractTrainer(TrainerProtocol, ABC):
     ):
         # Early stopping state
         self._best_model = self.model
-        self._best_loss = float("inf")
+        self._best_loss = (
+            float("-inf")
+            if early_termination_metric is not None
+            and early_termination_mode == "max"
+            else float("inf")
+        )
         self._early_stop_counter = 0
         self._early_termination_metric = early_termination_metric
         self._early_termination_mode = early_termination_mode
@@ -156,6 +166,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
             self._train_loader = train_loader
             self._val_loader = val_loader if val_loader else []
             self._test_loader = test_loader if test_loader else []
+            self._has_val_loader = val_loader is not None
 
             # Set dataset attributes to None as they are not used
             self._batch_size = None
@@ -178,6 +189,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
                 shuffle=True,
                 **kwargs
             )
+            self._has_val_loader = self._val_loader is not None
 
             self._batch_size = batch_size
             self._train_ratio, self._val_ratio, self._test_ratio = (
@@ -384,24 +396,11 @@ class AbstractTrainer(TrainerProtocol, ABC):
             logger.on_train_end()
 
     def _collect_early_stop_metric(self) -> Optional[float]:
-        if self._early_termination_metric is None:
-            # Do not perform early stopping when no termination metric is specified
-            early_term_metric = None
-        else:
-            # First look for the metric in validation loss
-            if self._early_termination_metric in list(
-                self._val_losses.keys()):
-                early_term_metric = self._val_losses[
-                    self._early_termination_metric][-1]
-            # Then look for the metric in validation metrics
-            elif self._early_termination_metric in list(
-                self._val_metrics.keys()):
-                early_term_metric = self._val_metrics[
-                    self._early_termination_metric][-1]
-            else:
-                raise ValueError("Invalid early termination metric")
-            
-        return early_term_metric
+        return collect_early_stop_metric(
+            self._early_termination_metric,
+            self._val_losses,
+            self._val_metrics,
+        )
 
     def update_early_stop_counter(self) -> bool:
         """
@@ -412,24 +411,42 @@ class AbstractTrainer(TrainerProtocol, ABC):
         
         early_term_metric = self._collect_early_stop_metric()
 
-        # When early termination is disabled, 
-        # the best model is updated with the current model
-        if not self._early_termination and early_term_metric is None:
-            self.best_model = copy.deepcopy(self.model)
+        if not self._early_termination:
+            default_val_loss = (
+                collect_default_validation_loss(self._val_losses)
+                if self._has_val_loader
+                else None
+            )
+            if default_val_loss is None:
+                self.best_model = clone_model(self.model)
+                return False
+
+            update = update_early_stop_state(
+                current_value=default_val_loss,
+                best_value=self.best_loss,
+                counter=self.early_stop_counter,
+                patience=1,
+                mode="min",
+            )
+            self.best_loss = update.best_value
+            if update.improved:
+                self.best_model = clone_model(self.model)
             return False
         
-        reset_counter = (early_term_metric < self.best_loss) \
-            if self._early_termination_mode == "min" \
-                else (early_term_metric > self.best_loss)
+        update = update_early_stop_state(
+            current_value=early_term_metric,
+            best_value=self.best_loss,
+            counter=self.early_stop_counter,
+            patience=self.patience,
+            mode=self._early_termination_mode,
+        )
+        self.best_loss = update.best_value
+        self.early_stop_counter = update.counter
 
-        if reset_counter:
-            self.best_loss = early_term_metric
-            self.early_stop_counter = 0
-            self.best_model = copy.deepcopy(self.model)
-        else:
-            self.early_stop_counter += 1
+        if update.improved:
+            self.best_model = clone_model(self.model)
 
-        return self.early_stop_counter >= self.patience
+        return update.should_stop
     
     def _update_epoch_progress(
         self,

@@ -82,6 +82,7 @@ class TestGeneratorForwardGroup:
         assert next(forward_group._models[GENERATOR_MODEL].parameters()).device == device
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.gpu
     def test_cuda_forward(self, simple_conv_model, random_input, random_target):
         """Test that model is moved to specified device and forward works (CUDA)."""
         device = torch.device("cuda:0")

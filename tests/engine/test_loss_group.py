@@ -238,7 +238,9 @@ class TestLossGroup:
 
 class TestDeviceManagement:
     """Test device management across different hardware configurations."""
-    
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.gpu
     def test_multiple_loss_groups_different_devices(self, available_devices):
         """
         Test that multiple loss groups can operate independently 
@@ -334,7 +336,8 @@ class TestDeviceManagement:
         assert logs1["loss2_dev1"] != 0.0
         assert logs2["loss1_dev2"] != 0.0
         assert logs2["loss2_dev2"] != 0.0
-    
+
+    @pytest.mark.gpu
     def test_loss_group_all_items_same_device(self, available_devices):
         """
         Test that all items within a single loss group work correctly 

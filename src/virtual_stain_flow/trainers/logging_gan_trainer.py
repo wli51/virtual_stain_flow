@@ -12,6 +12,7 @@ from typing import Dict, List, Union, Optional
 import torch
 
 from .AbstractTrainer import AbstractTrainer
+from .model_saving import select_model_for_saving, save_model_weights
 from ..engine.loss_group import LossGroup, LossItem
 from ..losses.wgan_losses import (
     WassersteinLoss,
@@ -216,14 +217,17 @@ class BaseGANTrainer(AbstractTrainer):
                 'best' if best_model else str(self.epoch)
             )
 
-        model = (
-            self.best_model
-            if best_model and self.best_model is not None
-            else self.model
+        model = select_model_for_saving(
+            model=self.model,
+            best_model=self.best_model,
+            use_best_model=best_model,
         )
-        gen_path = model.save_weights(
-            filename=f"generator_{file_name_suffix}{file_ext}",
-            dir=save_path
+        gen_path = save_model_weights(
+            model=model,
+            save_path=save_path,
+            prefix="generator",
+            suffix=file_name_suffix,
+            file_ext=file_ext,
         )
 
         return [gen_path]
