@@ -276,16 +276,10 @@ class MlflowLogger:
         """
         # Save weights to a temporary directory and log artifacts
         if self._save_model_at_train_end:
-            self._save_model_weights(
-                artifact_path='weights',
-                best_model=False
-            )
+            _log_trainer_artifact(self.trainer, best_model=False)
 
         if self._save_best_model:
-            self._save_model_weights(
-                artifact_path='weights',
-                best_model=True
-            )
+            _log_trainer_artifact(self.trainer, best_model=True)
 
         for callback in self.callbacks:
             if hasattr(callback, 'on_train_end'):
