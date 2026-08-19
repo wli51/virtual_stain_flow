@@ -25,6 +25,8 @@ class TestUpDownBlocks:
 			(ConvTrans2DUpBlock, {"out_channels": 3}, 4, 3, 2),
 			(PixelShuffle2DUpBlock, {}, 4, 1, 2),
 			(PixelShuffle2DUpBlock, {"out_channels": 8}, 4, 1, 2),
+			(PixelShuffle2DUpBlock, {"preserve_channels": True}, 4, 4, 2),
+			(PixelShuffle2DUpBlock, {"preserve_channels": True, "out_channels": 8}, 4, 4, 2),
 			(Bilinear2DUpsampleBlock, {}, 3, 3, 2),
 			(Bilinear2DUpsampleBlock, {"out_channels": 8}, 3, 3, 2),
 		],

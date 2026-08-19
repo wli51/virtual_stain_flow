@@ -287,6 +287,7 @@ class PixelShuffle2DUpBlock(AbstractUpBlock):
         self,
         in_channels: int,
         out_channels: Optional[int] = None,
+        preserve_channels: bool = False,
         **kwargs
     ):
         """
@@ -303,7 +304,9 @@ class PixelShuffle2DUpBlock(AbstractUpBlock):
         # out_channel is determined by the number of input channels
         # as the pixel shuffle operation merely rearranges the channels
         # to the spatial dimensions
-        out_channels = in_channels // (scale_factor ** spatial_dims)
+        out_channels = in_channels
+        if not preserve_channels:
+            out_channels = out_channels // (scale_factor ** spatial_dims)
 
         super().__init__(
             in_channels=in_channels,
