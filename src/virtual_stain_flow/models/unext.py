@@ -108,6 +108,7 @@ class ConvNeXtUNet(BaseGeneratorModel):
                 f"Unsupported decoder_up_block: {decoder_up_block!r}. "
                 "Expected 'pixelshuffle' or 'convt'."
             )
+        self._pixel_shuffle_preserve_channels = _pixel_shuffle_preserve_channels
         self._decoder_up_block = decoder_up_block
         
         if decoder_compute_block == 'convnext':
@@ -197,6 +198,7 @@ class ConvNeXtUNet(BaseGeneratorModel):
                 "decoder_compute_block": self._decoder_compute_block,
                 "act_type": self._act_type,
                 "_num_units": self._num_units_cfg,
+                "_pixel_shuffle_preserve_channels": self._pixel_shuffle_preserve_channels,
             },
         }
     
@@ -208,5 +210,8 @@ class ConvNeXtUNet(BaseGeneratorModel):
         """
         
         init_cfg = config.get("init", config)
+        if "_pixel_shuffle_preserve_channels" not in init_cfg:
+            # For backward compatibility with configs that don't have this key
+            init_cfg["_pixel_shuffle_preserve_channels"] = False
 
         return cls(**init_cfg)
