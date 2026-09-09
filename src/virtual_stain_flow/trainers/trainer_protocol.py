@@ -71,7 +71,7 @@ class TrainerProtocol(Protocol):
     def save_model(
         self, 
         save_path: pathlib.Path, 
-        file_name_prefix: Optional[str] = None, 
+        file_name_prefix: str = 'generator',
         file_name_suffix: Optional[str] = None, 
         file_ext: str = '.pth',
         best_model: bool = True,
@@ -81,7 +81,7 @@ class TrainerProtocol(Protocol):
     def save_optimizer_state(
         self, 
         save_path: pathlib.Path, 
-        file_name_prefix: Optional[str] = None, 
+        file_name_prefix: str = 'optimizer',
         file_name_suffix: Optional[str] = None, 
         file_ext: str = '.pth',
         recent: bool = True,

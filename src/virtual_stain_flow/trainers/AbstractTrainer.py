@@ -412,7 +412,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
     def save_model(
         self,
         save_path: pathlib.Path,
-        file_name_prefix: Optional[str] = None,
+        file_name_prefix: str = 'generator',
         file_name_suffix: Optional[str] = None,
         file_ext: str = '.pth',
         best_model: bool = True
@@ -420,7 +420,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
         return save_model(
             self,
             save_path=save_path,
-            file_name_prefix=file_name_prefix or 'generator',
+            file_name_prefix=file_name_prefix,
             file_name_suffix=file_name_suffix,
             file_ext=file_ext,
             save_best_model=best_model
@@ -429,7 +429,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
     def save_optimizer_state(
         self, 
         save_path: pathlib.Path, 
-        file_name_prefix: Optional[str] = None, 
+        file_name_prefix: str = 'optimizer',
         file_name_suffix: Optional[str] = None, 
         file_ext: str = '.pth',
         recent: bool = True
