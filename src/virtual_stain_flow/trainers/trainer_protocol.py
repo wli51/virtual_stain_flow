@@ -19,7 +19,6 @@ class TrainerProtocol(Protocol):
     """
 
     _batch_size: int
-    _epochs: int
     _patience: int
     _device: torch.device
 
