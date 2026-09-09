@@ -559,6 +559,14 @@ class TestSingleGeneratorTrainerTrain:
         epochs = 3
         conv_trainer.train(logger=dummy_logger, epochs=epochs, verbose=False)
         
-        # Check that step numbers are within expected range (0-indexed)
-        for metric in dummy_logger.logged_metrics:
-            assert 0 <= metric['step'] < epochs
+        assert {metric['step'] for metric in dummy_logger.logged_metrics} == {1, 2, 3}
+
+    def test_resumed_training_logs_cumulative_epoch_steps(
+        self, conv_trainer, dummy_logger
+    ):
+        """Metric steps stay aligned with callbacks after resumed training."""
+        conv_trainer.epoch = 5
+
+        conv_trainer.train(logger=dummy_logger, epochs=2, verbose=False)
+
+        assert {metric['step'] for metric in dummy_logger.logged_metrics} == {6, 7}
