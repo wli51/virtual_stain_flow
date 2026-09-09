@@ -17,7 +17,7 @@ from .auto_loggers import (
     AutoOptimizerConfigLogger,
     AutoTrainerLogger
 )
-from .logger_utils import _log_artifact, _log_trainer_artifact
+from .logger_utils import _log_artifact, _save_and_log_trainer_artifacts
 from .callbacks.LoggerCallback import (
     AbstractLoggerCallback,
     log_type
@@ -251,10 +251,10 @@ class MlflowLogger:
 
         if self._save_model_every_n_epochs is not None:
             if self.trainer.epoch % self._save_model_every_n_epochs == 0:
-                _log_trainer_artifact(self.trainer, best_model=False)
+                _save_and_log_trainer_artifacts(self.trainer, best_model=False)
 
         if self._save_best_model:
-            _log_trainer_artifact(self.trainer, best_model=True)
+            _save_and_log_trainer_artifacts(self.trainer, best_model=True)
 
         # Call on_epoch_end for all registered callbacks
         for callback in self.callbacks:
@@ -276,10 +276,10 @@ class MlflowLogger:
         """
         # Save weights to a temporary directory and log artifacts
         if self._save_model_at_train_end:
-            _log_trainer_artifact(self.trainer, best_model=False)
+            _save_and_log_trainer_artifacts(self.trainer, best_model=False)
 
         if self._save_best_model:
-            _log_trainer_artifact(self.trainer, best_model=True)
+            _save_and_log_trainer_artifacts(self.trainer, best_model=True)
 
         for callback in self.callbacks:
             if hasattr(callback, 'on_train_end'):

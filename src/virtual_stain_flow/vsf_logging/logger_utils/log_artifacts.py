@@ -51,16 +51,17 @@ def _log_artifact(
     mlflow.log_artifact(str(file_path), artifact_path=artifact_path)
 
 
-def _log_trainer_artifact(
+def _save_and_log_trainer_artifacts(
     trainer: "TrainerProtocol",
     best_model: bool = True,
 ) -> None:
     """
-    Logs the model and optimizer state artifacts from a trainer to MLflow.
+    Saves the trainer's model and optimizer state to temporary files and logs
+    those files as MLflow artifacts.
     The most recent optimizer state is saved and logged regardless of the best_model flag.
 
     :param trainer: The trainer instance adhering to TrainerProtocol.
-    :param best_model: Whether to log only the best model, defaults to True.
+    :param best_model: Whether to save and log the best model, defaults to True.
     :raises TypeError: If the provided trainer does not adhere to TrainerProtocol.
     """
 
