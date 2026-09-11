@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added tests for compatibility mode (`preserve_channels=True`).
 - Added a regression test asserting that insufficient `in_channels` raises a clear `ValueError`.
 
+#### Added clipping to [0,1] range in max scale normalization (`virtual_stain_flow/transforms/normalizations.py`)
+- Good to have for the sake of ensuring post normalization values fall within expected ranges even if normalization factor is misspecified.
+
 ---
 
 ## [0.4.9] - 2026-09-11
