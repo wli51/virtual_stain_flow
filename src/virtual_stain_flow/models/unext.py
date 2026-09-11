@@ -212,6 +212,6 @@ class ConvNeXtUNet(BaseGeneratorModel):
         init_cfg = config.get("init", config)
         if "_pixel_shuffle_preserve_channels" not in init_cfg:
             # For backward compatibility with configs that don't have this key
-            init_cfg["_pixel_shuffle_preserve_channels"] = False
+            init_cfg["_pixel_shuffle_preserve_channels"] = True
 
         return cls(**init_cfg)
