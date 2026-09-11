@@ -362,6 +362,27 @@ class TestFileState:
 class TestDatasetManifestSerialization:
     """Test suite for DatasetManifest serialization methods."""
 
+    def test_config_round_trip(self):
+        """Test serialization converts paths to strings and restores Paths."""
+        manifest = DatasetManifest(
+            file_index=pd.DataFrame({
+                "channel1": [Path("/path/to/img1.tif")],
+                "channel2": ["/path/to/img2.tif"],
+            })
+        )
+
+        config = manifest.to_config()
+        restored = DatasetManifest.from_config(config)
+
+        assert config["file_index"] == [{
+            "channel1": "/path/to/img1.tif",
+            "channel2": "/path/to/img2.tif",
+        }]
+        assert restored.file_index.to_dict(orient="records") == [{
+            "channel1": Path("/path/to/img1.tif"),
+            "channel2": Path("/path/to/img2.tif"),
+        }]
+
     def test_from_config_missing_file_index(self):
         """Test DatasetManifest.from_config raises ValueError when file_index is missing."""
         config = {"pil_image_mode": "I;16", "file_index": None}
