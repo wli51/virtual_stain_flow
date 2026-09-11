@@ -50,3 +50,10 @@ class TestUpDownBlocks:
 		)
 		assert block.out_h(input_tensor.shape[2]) == output.shape[2]
 		assert block.out_w(input_tensor.shape[3]) == output.shape[3]
+
+	def test_pixel_shuffle_requires_enough_channels(self):
+		with pytest.raises(
+			ValueError,
+			match=r"requires at least 4 input channels[\s\S]*in_channels=1",
+		):
+			PixelShuffle2DUpBlock(in_channels=1)
