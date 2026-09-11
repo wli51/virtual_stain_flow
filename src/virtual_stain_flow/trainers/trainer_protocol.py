@@ -19,7 +19,6 @@ class TrainerProtocol(Protocol):
     """
 
     _batch_size: int
-    _epochs: int
     _patience: int
     _device: torch.device
 
@@ -45,6 +44,18 @@ class TrainerProtocol(Protocol):
     def epoch(self) -> int: ...
 
     @property
+    def batch_size(self) -> int: ...
+
+    @property
+    def train_n(self) -> int: ...
+
+    @property
+    def val_n(self) -> int: ...
+
+    @property
+    def test_n(self) -> int: ...
+
+    @property
     def device(self) -> torch.device: ...
 
     @property
@@ -59,9 +70,19 @@ class TrainerProtocol(Protocol):
     def save_model(
         self, 
         save_path: pathlib.Path, 
-        file_name_prefix: Optional[str], 
-        file_name_suffix: Optional[str], 
+        file_name_prefix: str = 'generator',
+        file_name_suffix: Optional[str] = None, 
         file_ext: str = '.pth',
         best_model: bool = True,
+    ) -> Optional[List[pathlib.Path]]:
+        ...
+
+    def save_optimizer_state(
+        self, 
+        save_path: pathlib.Path, 
+        file_name_prefix: str = 'optimizer',
+        file_name_suffix: Optional[str] = None, 
+        file_ext: str = '.pth',
+        recent: bool = True,
     ) -> Optional[List[pathlib.Path]]:
         ...

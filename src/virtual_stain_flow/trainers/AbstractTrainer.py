@@ -13,7 +13,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from .trainer_protocol import TrainerProtocol
-from .trainer_utils import EarlyStopHelper, save_model
+from .trainer_utils import EarlyStopHelper, save_model, save_optimizer_state
 from ..metrics.AbstractMetrics import AbstractMetrics
 from ..engine.progress import Progress
 from ..datasets.data_split import default_random_split
@@ -42,6 +42,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
         test_ratio: Optional[float] = 0.15,
         metrics: Dict[str, AbstractMetrics] = None,
         device: Optional[torch.device] = None,
+        epoch: int = 0,
         early_termination_metric: Optional[str] = None,
         early_termination_mode: Literal['min', 'max'] = "min",
         **kwargs,
@@ -68,6 +69,8 @@ class AbstractTrainer(TrainerProtocol, ABC):
             dataset is provided. Default is 0.15.
         :param metrics: Dictionary of metrics to be logged.
         :param device: (optional) The device to be used for training.
+        :param epoch: (optional) The starting epoch for training. 
+            Useful for resuming training from a checkpoint.
         :param early_termination_metric: (optional) The metric to update 
             early-termination count on the validation dataset. 
             If None, early termination is disabled and the
@@ -102,20 +105,25 @@ class AbstractTrainer(TrainerProtocol, ABC):
             **kwargs
         )
         self._init_state(
+            epoch,
             early_termination_metric, early_termination_mode, **kwargs)
 
     def _init_state(
         self, 
+        epoch: int,
         early_termination_metric: Optional[str] = None,
         early_termination_mode: Literal['min', 'max'] = "min",
         **kwargs
     ):
 
+        if epoch is None:
+            raise TypeError("epoch must be an integer, not None.")
+
         # Epoch state
-        self._epoch = 0
+        self._epoch = epoch
         
         # Progress tracking for loss weight scheduling
-        self._progress = Progress(epoch=0, step=0)
+        self._progress = Progress(epoch=epoch, step=0)
 
         # Loss and metrics state
         self._train_losses = defaultdict(list)
@@ -183,7 +191,6 @@ class AbstractTrainer(TrainerProtocol, ABC):
                 **kwargs
             )
 
-            self._batch_size = batch_size
             self._train_ratio, self._val_ratio, self._test_ratio = (
                 train_ratio, val_ratio, test_ratio
             )
@@ -194,7 +201,23 @@ class AbstractTrainer(TrainerProtocol, ABC):
                 "or provide at least train_loader."
             )
 
+        self._batch_size = self._train_loader.batch_size if hasattr(self._train_loader, 'batch_size') else None
+        self._train_n = self._get_dataset_size(self._train_loader)
+        self._val_n = self._get_dataset_size(self._val_loader)
+        self._test_n = self._get_dataset_size(self._test_loader)
+
         return None
+
+    @staticmethod
+    def _get_dataset_size(loader) -> Optional[int]:
+        dataset = getattr(loader, 'dataset', None)
+        if dataset is None:
+            return None
+
+        try:
+            return len(dataset)
+        except TypeError:
+            return None
 
     @abstractmethod
     def train_step(self, inputs: torch.Tensor, targets: torch.Tensor)->Dict[str, float]:
@@ -323,17 +346,17 @@ class AbstractTrainer(TrainerProtocol, ABC):
         if hasattr(logger, "on_train_start"):
             logger.on_train_start()
 
-        self._epochs = epochs
+        epoch_range = range(self.epoch + 1, self.epoch + epochs + 1)
         self._epoch_pbar: Optional[tqdm] = tqdm(
-            range(epochs), desc="Training", unit="epoch") if verbose else None
-        iterable = self._epoch_pbar if self._epoch_pbar else range(epochs)
+            epoch_range, desc="Training", unit="epoch") if verbose else None
+        iterable = self._epoch_pbar if self._epoch_pbar else epoch_range
 
         self._early_stop_helper.initialize_early_stop(patience=patience if patience else epochs)
 
         for epoch in iterable:
 
-            # Increment the epoch counter
-            self.epoch += 1
+            # Synchronize trainer state for loggers, callbacks, and schedulers
+            self.epoch = epoch
 
             # Invoke the on_epoch_start method of the logge
             if hasattr(logger, "on_epoch_start"):
@@ -406,7 +429,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
     def save_model(
         self,
         save_path: pathlib.Path,
-        file_name_prefix: Optional[str] = None,
+        file_name_prefix: str = 'generator',
         file_name_suffix: Optional[str] = None,
         file_ext: str = '.pth',
         best_model: bool = True
@@ -414,10 +437,34 @@ class AbstractTrainer(TrainerProtocol, ABC):
         return save_model(
             self,
             save_path=save_path,
-            file_name_prefix=file_name_prefix or 'generator',
+            file_name_prefix=file_name_prefix,
             file_name_suffix=file_name_suffix,
             file_ext=file_ext,
             save_best_model=best_model
+        )
+
+    def save_optimizer_state(
+        self, 
+        save_path: pathlib.Path, 
+        file_name_prefix: str = 'optimizer',
+        file_name_suffix: Optional[str] = None, 
+        file_ext: str = '.pth',
+        recent: bool = True
+    ) -> Optional[List[pathlib.Path]]:
+        """
+        Save the optimizer state to the specified path.
+        """
+        if not recent:
+            raise NotImplementedError(
+                "Saving non-recent optimizer states is not implemented yet."
+            )
+        file_name_suffix = file_name_suffix or 'recent'
+        return save_optimizer_state(
+            trainer=self,
+            save_path=save_path,
+            file_name_prefix=file_name_prefix,
+            file_name_suffix=file_name_suffix,
+            file_ext=file_ext
         )
 
     """
@@ -452,6 +499,18 @@ class AbstractTrainer(TrainerProtocol, ABC):
     @property
     def test_ratio(self):
         return self._test_ratio
+
+    @property
+    def train_n(self):
+        return self._train_n
+
+    @property
+    def val_n(self):
+        return self._val_n
+
+    @property
+    def test_n(self):
+        return self._test_n
     
     @property
     def model(self):
@@ -468,11 +527,7 @@ class AbstractTrainer(TrainerProtocol, ABC):
     @property
     def batch_size(self):
         return self._batch_size
-    
-    @property
-    def epochs(self):
-        return self._epochs
-    
+        
     @property
     def patience(self):
         return self._patience

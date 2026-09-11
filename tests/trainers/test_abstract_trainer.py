@@ -338,6 +338,37 @@ class TestTrainEpochEdgeCases:
 
 class TestDataSplitting:
     """Test that AbstractTrainer correctly handles dataset splitting."""
+
+    def test_init_rejects_none_epoch(
+        self, minimal_model, minimal_optimizer, train_dataloader
+    ):
+        with pytest.raises(TypeError, match="epoch must be an integer"):
+            MinimalTrainerRealization(
+                model=minimal_model,
+                optimizer=minimal_optimizer,
+                train_loader=train_dataloader,
+                epoch=None,
+                device=torch.device('cpu')
+            )
+
+    def test_init_with_unsized_dataset_records_unknown_size(
+        self, minimal_model, minimal_optimizer
+    ):
+        from torch.utils.data import DataLoader, IterableDataset
+
+        class UnsizedDataset(IterableDataset):
+            def __iter__(self):
+                yield torch.randn(4), torch.randn(2)
+
+        train_loader = DataLoader(UnsizedDataset(), batch_size=1)
+        trainer = MinimalTrainerRealization(
+            model=minimal_model,
+            optimizer=minimal_optimizer,
+            train_loader=train_loader,
+            device=torch.device('cpu')
+        )
+
+        assert trainer.train_n is None
     
     def test_init_with_dataset_creates_loaders(self, minimal_model, minimal_optimizer, dataset_for_splitting):
         """Verify that providing a dataset creates train/val/test loaders."""
@@ -697,8 +728,9 @@ class TestProperties:
             device=torch.device('cpu')
         )
         
-        # When providing loaders, batch_size is set to None
-        assert trainer.batch_size is None
+        # When providing loaders, batch_size is inferred from the train loader
+        # should therefore match
+        assert trainer.batch_size is train_dataloader.batch_size
     
     def test_batch_size_property_default_value(self, minimal_model, minimal_optimizer, dataset_for_splitting):
         """Verify that batch_size property uses default value when not specified."""

@@ -388,7 +388,7 @@ class MinimalTrainerRealization(AbstractTrainer):
             'loss_b': torch.tensor(0.2),
         }
 
-    def save_model(self, save_path, file_name_prefix=None, file_name_suffix=None,
+    def save_model(self, save_path, file_name_prefix='generator', file_name_suffix=None,
                    file_ext='.pth', best_model=True):
         return None
 

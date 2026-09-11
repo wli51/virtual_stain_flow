@@ -179,12 +179,12 @@ class DatasetManifest:
     
     def _serialize_file_index(self) -> pd.DataFrame:
         """Serialize file_index to pd.DataFrame"""
-        return self.file_index.copy().applymap(lambda x: str(x))
+        return self.file_index.map(str)
     
     @staticmethod
     def _deserialize_file_index(file_index: pd.DataFrame) -> pd.DataFrame:
         """Deserialize file_index from pd.DataFrame"""
-        return file_index.applymap(lambda x: Path(x))
+        return file_index.map(Path)
     
     def to_config(self) -> Dict[str, Any]:
         """Serialize to dict"""

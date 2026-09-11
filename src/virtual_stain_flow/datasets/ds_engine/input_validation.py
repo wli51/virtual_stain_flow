@@ -16,7 +16,7 @@ from pandera import Check
 def _cell_contains_pathlike(x: Any, *, check_exists: bool) -> bool:
     """
     Validate that a cell contains a valid path-like object.
-    Intended to be used as a lambda function in the DataFrame.applymap method.
+    Intended to be used as a lambda function in the DataFrame.map method.
 
     :param x: The cell value to check.
     :param check_exists: Whether to check if the path exists.
