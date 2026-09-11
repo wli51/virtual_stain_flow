@@ -5,6 +5,21 @@ All notable chagnes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),  
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.9] - 2026-09-11
+
+### Added
+
+
+#### Initial training resume support (`virtual_stain_flow/vsf_logging/`, `virtual_stain_flow/trainers/`)
+- Added MLflow logging for optimizer state to support resuming training runs from logged artifacts and trainer state.
+
+### Fixed
+
+#### Pandas validation API update (`virtual_stain_flow/datasets/ds_engine/`)
+- Replaced deprecated `DataFrame.applymap` usage with `DataFrame.map` in dataset input validation to keep the GH Actions test suite green.
+
+
+
 ---
 
 ## [0.4.8] - 2026-08-03
