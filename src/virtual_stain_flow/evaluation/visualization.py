@@ -443,7 +443,7 @@ def plot_predictions_grid_from_model(
     (
         inputs, targets, raw_images, patch_coords, input_channel_names, target_channel_names
     ) = extract_samples_from_dataset(dataset, indices)
-    snapshot = TensorDataset(torch.from_numpy(inputs), torch.from_numpy(targets))
+    snapshot = TensorDataset(torch.from_numpy(inputs.copy()), torch.from_numpy(targets.copy()))
     targets_tensor, predictions_tensor, _ = predict_image(snapshot, model, device=device)
 
     # Step 2: Compute metrics (if any)
