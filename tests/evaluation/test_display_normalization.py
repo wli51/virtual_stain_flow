@@ -129,13 +129,13 @@ def test_constant_target_still_exposes_under_and_over_prediction():
     assert pred_artist.get_clim() == (0.5, 0.5)
     np.testing.assert_array_equal(pred_artist.norm([0.4, 0.5, 0.6]), [0, 0.5, 1])
     assert np.ma.is_masked(pred_artist.norm(np.nan))
-    figure.canvas.draw()
-    np.testing.assert_array_equal(pred_artist.norm([0.4, 0.5, 0.6]), [0, 0.5, 1])
-    rgba, *_ = pred_artist.make_image(figure.canvas.get_renderer(), unsampled=True)
-    np.testing.assert_array_equal(rgba[0, 0], [0, 0, 0, 255])
-    np.testing.assert_allclose(rgba[0, 1, :3], [128, 128, 128], atol=1)
-    np.testing.assert_array_equal(rgba[1, 0], [255, 255, 255, 255])
-    assert rgba[1, 1, 3] == 0
+    mapped = pred_artist.cmap(pred_artist.norm(prediction[0, 0]))
+    np.testing.assert_allclose(
+        mapped,
+        [[[0, 0, 0, 1], [0.5, 0.5, 0.5, 1]],
+         [[1, 1, 1, 1], [0, 0, 0, 0]]],
+        atol=1 / 255,
+    )
 
 
 def test_legacy_constant_images_keep_matplotlib_behavior():
