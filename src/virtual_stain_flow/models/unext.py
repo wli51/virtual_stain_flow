@@ -49,9 +49,9 @@ class ConvNeXtUNet(BaseGeneratorModel):
         decoder_compute_block: Literal['convnext', 'conv2d'] = 'convnext',
         act_type: ActivationType = 'sigmoid',
         pretrained_backbone: bool = False,
-        padding_mode: PaddingMode = 'zeros',
         _num_units: Union[List[int], int] = 2,
         _pixel_shuffle_preserve_channels: bool = False,
+        padding_mode: PaddingMode = 'zeros',
         _encoder_padding_mode: PaddingMode | None = None,
         _decoder_padding_mode: PaddingMode | None = None,
     ):
@@ -70,16 +70,16 @@ class ConvNeXtUNet(BaseGeneratorModel):
             Default is 'sigmoid'.
         :param pretrained_backbone: Whether to use a pretrained ConvNeXtV2_tiny backbone.
             Default is False.
-        :param padding_mode: Shared padding mode for padded encoder convolutions
-            and decoder compute blocks (not upsampling blocks). Supports 'zeros'
-            (default) and 'reflect'. Reflection
-            padding requires feature-map dimensions larger than the padding
-            size (3 for the encoder's 7x7 depthwise convolutions).
         :param _num_units: Number of computation units in each stage.
             Can be an integer for uniform number of units in all stages,
             or a list of integers specifying the number of units for each stage.
         :param _pixel_shuffle_preserve_channels: Whether to preserve the number of channels
             when using PixelShuffle2DUpBlock in the decoder. Default is False.
+        :param padding_mode: Shared padding mode for padded encoder convolutions
+            and decoder compute blocks (not upsampling blocks). Supports 'zeros'
+            (default) and 'reflect'. Reflection
+            padding requires feature-map dimensions larger than the padding
+            size (3 for the encoder's 7x7 depthwise convolutions).
         :param _encoder_padding_mode: Padding mode used by padded convolution
             layers in the ConvNeXtV2 encoder. Supports 'zeros' and 'reflect'.
             Defaults to None, inheriting padding_mode; otherwise overrides it.
