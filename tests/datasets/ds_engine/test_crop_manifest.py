@@ -287,8 +287,8 @@ class TestCropFileState:
         
         input_path = tmp_path / 'input.tif'
         target_path = tmp_path / 'target.tif'
-        Image.fromarray(input_img, mode='I;16').save(str(input_path))
-        Image.fromarray(target_img, mode='I;16').save(str(target_path))
+        Image.fromarray(input_img).save(str(input_path))
+        Image.fromarray(target_img).save(str(target_path))
         
         df = pd.DataFrame({
             'input_ch1': [str(input_path)],
@@ -319,8 +319,8 @@ class TestCropFileState:
         
         input_path = tmp_path / 'input.tif'
         target_path = tmp_path / 'target.tif'
-        Image.fromarray(input_img, mode='I;16').save(str(input_path))
-        Image.fromarray(target_img, mode='I;16').save(str(target_path))
+        Image.fromarray(input_img).save(str(input_path))
+        Image.fromarray(target_img).save(str(target_path))
         
         df = pd.DataFrame({
             'input_ch1': [str(input_path)],
@@ -362,9 +362,9 @@ class TestCropFileState:
         path2 = tmp_path / 'img2.tif'
         path_target = tmp_path / 'target.tif'
         
-        Image.fromarray(img1, mode='I;16').save(str(path1))
-        Image.fromarray(img2, mode='I;16').save(str(path2))
-        Image.fromarray(np.ones((10, 10), dtype=np.uint16), mode='I;16').save(str(path_target))
+        Image.fromarray(img1).save(str(path1))
+        Image.fromarray(img2).save(str(path2))
+        Image.fromarray(np.ones((10, 10), dtype=np.uint16)).save(str(path_target))
         
         # Manifest with two images
         df = pd.DataFrame({
@@ -400,8 +400,8 @@ class TestCropFileState:
         
         input_path = tmp_path / 'input.tif'
         target_path = tmp_path / 'target.tif'
-        Image.fromarray(input_img, mode='I;16').save(str(input_path))
-        Image.fromarray(target_img, mode='I;16').save(str(target_path))
+        Image.fromarray(input_img).save(str(input_path))
+        Image.fromarray(target_img).save(str(target_path))
         
         df = pd.DataFrame({
             'input_ch1': [str(input_path)],
@@ -433,8 +433,8 @@ class TestCropFileState:
         
         input_path = tmp_path / 'input.tif'
         target_path = tmp_path / 'target.tif'
-        Image.fromarray(input_img, mode='I;16').save(str(input_path))
-        Image.fromarray(target_img, mode='I;16').save(str(target_path))
+        Image.fromarray(input_img).save(str(input_path))
+        Image.fromarray(target_img).save(str(target_path))
         
         df = pd.DataFrame({
             'input_ch1': [str(input_path)],
@@ -479,8 +479,8 @@ class TestCropFileState:
         
         input_path = tmp_path / 'input.tif'
         target_path = tmp_path / 'target.tif'
-        Image.fromarray(input_img, mode='I;16').save(str(input_path))
-        Image.fromarray(target_img, mode='I;16').save(str(target_path))
+        Image.fromarray(input_img).save(str(input_path))
+        Image.fromarray(target_img).save(str(target_path))
         
         df = pd.DataFrame({
             'input_ch1': [str(input_path)],
