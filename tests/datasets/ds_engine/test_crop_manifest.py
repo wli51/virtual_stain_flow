@@ -251,8 +251,8 @@ class TestCropFileState:
         
         input_path = tmp_path / 'input.tif'
         target_path = tmp_path / 'target.tif'
-        Image.fromarray(input_img, mode='I;16').save(str(input_path))
-        Image.fromarray(target_img, mode='I;16').save(str(target_path))
+        Image.fromarray(input_img).save(str(input_path))
+        Image.fromarray(target_img).save(str(target_path))
         
         # Create manifest with these files
         df = pd.DataFrame({
