@@ -48,6 +48,12 @@ PaddingMode = Literal['zeros', 'reflect']
 
 
 def _validate_padding_mode(padding_mode: PaddingMode) -> None:
+    """
+    Validate the padding mode.
+
+    :param padding_mode: Padding mode to validate.
+    :raises ValueError: If the padding mode is not 'zeros' or 'reflect'.
+    """
     if padding_mode not in ('zeros', 'reflect'):
         raise ValueError(
             f"Unsupported padding_mode: {padding_mode!r}. "
@@ -56,12 +62,24 @@ def _validate_padding_mode(padding_mode: PaddingMode) -> None:
 
 
 def _is_padded_conv(conv: nn.Conv2d) -> bool:
+    """
+    Check if a convolution layer has padding applied.
+
+    :param conv: Convolution layer to check.
+    :return: True if the convolution has padding, False otherwise.
+    """
     if isinstance(conv.padding, str):
         return conv.padding != 'valid'
     return any(p > 0 for p in conv.padding)
 
 
 def _set_padding_mode_on_padded_convs(module: nn.Module, padding_mode: PaddingMode) -> None:
+    """
+    Set the padding mode on all padded convolution layers within the module.
+
+    :param module: Module containing convolution layers.
+    :param padding_mode: Padding mode to set ('zeros' or 'reflect').
+    """
     if padding_mode == 'zeros':
         return
     for layer in module.modules():
@@ -70,7 +88,12 @@ def _set_padding_mode_on_padded_convs(module: nn.Module, padding_mode: PaddingMo
 
 
 class AbstractBlock(ABC, nn.Module):
+    """
+    Abstract base class for all computational blocks.
 
+    This class centralizes input type checking and provides common properties
+    for blocks, such as in_channels, out_channels, and num_units.
+    """
     def __init__(
         self,
         in_channels: int,
@@ -78,6 +101,15 @@ class AbstractBlock(ABC, nn.Module):
         num_units: int = 1,
         **kwargs: dict
     ):
+        """
+        Initialize the block with input and output channels, number of units, 
+            and additional keyword arguments.
+
+        :param in_channels: Number of input channels.
+        :param out_channels: Number of output channels. Defaults to in_channels if None.
+        :param num_units: Number of units in the block.
+        :param kwargs: Additional keyword arguments. Not used by the base class.
+        """
         
         super().__init__()
 
@@ -111,6 +143,9 @@ class AbstractBlock(ABC, nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         """
         Forward pass of the block.
+
+        :param x: Input tensor.
+        :return: Output tensor after applying the block.
         """
         raise NotImplementedError
     
@@ -125,14 +160,32 @@ class AbstractBlock(ABC, nn.Module):
     def num_units(self) -> int:
         return self._num_units
     
-    # These 2 below should be overriden to reflect the actual spatial dimension
-    # changes the block applies. By default they indicate spatial preserving
-    # blocks, i.e. the height and width of the input tensor remain unchanged.
+    """
+    Compute the output spatial dimensions of the block.
+
+    By default, the block is assumed to preserve spatial dimensions,
+    i.e., the output height and width are the same as the input.
+
+    Should be overridden by blocks that change spatial dimensions.
+    """
     def out_h(self, in_h: int) -> int:
+        """
+        Compute the output height given the input height.
+
+        :param in_h: Input height.
+        :return: Output height after applying the block.
+        """
         return in_h
     
     def out_w(self, in_w: int) -> int:
+        """
+        Compute the output width given the input width.
+
+        :param in_w: Input width.
+        :return: Output width after applying the block.
+        """
         return in_w    
+
 
 class Conv2DConvNeXtBlock(AbstractBlock):    
     """
