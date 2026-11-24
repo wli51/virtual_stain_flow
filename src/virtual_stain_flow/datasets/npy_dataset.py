@@ -13,7 +13,7 @@ from ..transforms.base_transform import LoggableTransform
 
 
 class NpyImageDataset(BaseImageDataset):
-    """Read ``pedcp-numpy-tiles-v1`` exports using local per-FOV tile indices.
+    """Read a custom NumPy image dataset indexed by tiles.parquet.
 
     Requires ``export.json`` (NCHW) and ``tiles.parquet``. Select image or mask
     names with the base dataset's input/target channel keys; both default to
