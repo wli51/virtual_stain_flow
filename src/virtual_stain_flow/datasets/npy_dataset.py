@@ -8,7 +8,9 @@ import numpy as np
 import pandas as pd
 
 from .base_dataset import BaseImageDataset
-from .ds_engine.npy_manifest import NpyFileState, NpyManifest
+from .ds_engine.npy_manifest import (
+    NpyFileState, NpyIndices, NpyManifest, read_npy_tiles, validate_npy_indices,
+)
 from ..transforms.base_transform import LoggableTransform
 
 
@@ -26,12 +28,17 @@ class NpyImageDataset(BaseImageDataset):
     contains every non-path column, including tile_index. Read-only mappings
     are cached by file path (default two, -1 unlimited); each returned CHW tile
     is a fresh writable stack. No ``_SUCCESS`` marker is required.
+
+    ``indices`` optionally selects root parquet row positions before resolving
+    paths. ``subset`` uses current dataset positions and creates independent
+    state/cache while preserving root positions for config reconstruction.
     """
 
     def __init__(
         self,
         root_dir: Union[str, Path],
         *,
+        indices: Optional[NpyIndices] = None,
         input_channel_keys: Optional[Union[str, Sequence[str]]] = None,
         target_channel_keys: Optional[Union[str, Sequence[str]]] = None,
         transforms: Optional[Sequence[LoggableTransform]] = None,
@@ -55,24 +62,17 @@ class NpyImageDataset(BaseImageDataset):
         if not self.channel_names or len(set(names)) != len(names):
             raise ValueError("Export channel names must be nonempty and disjoint from mask names.")
 
-        tiles = pd.read_parquet(self.root_dir / "tiles.parquet")
-        if not tiles.columns.is_unique:
-            raise ValueError("tiles.parquet must have unique column names.")
-        if "tile_id" in tiles.columns:
-            tiles = tiles.set_index("tile_id")
-        if tiles.index.name != "tile_id":
-            raise ValueError("tiles.parquet must contain a tile_id column or named index.")
-        if (tiles.empty or tiles.index.hasnans or not tiles.index.is_unique
-                or any(isinstance(i, str) and not i.strip() for i in tiles.index)):
-            raise ValueError("tile_id must be nonempty, non-null and unique in a non-empty table.")
+        tiles = read_npy_tiles(self.root_dir)
+        self._indices = validate_npy_indices(indices, len(tiles))
+        tiles = tiles.iloc[self._indices].copy()
         path_columns = ["images_path", "masks_path"]
         missing = set(["tile_index", *path_columns]) - set(tiles.columns)
         if missing:
             raise ValueError(f"tiles.parquet is missing required columns: {sorted(missing)}")
-        indices = tiles["tile_index"]
-        if (not pd.api.types.is_integer_dtype(indices.dtype)
-                or pd.api.types.is_bool_dtype(indices.dtype)
-                or indices.isna().any() or (indices < 0).any()):
+        tile_indices = tiles["tile_index"]
+        if (not pd.api.types.is_integer_dtype(tile_indices.dtype)
+                or pd.api.types.is_bool_dtype(tile_indices.dtype)
+                or tile_indices.isna().any() or (tile_indices < 0).any()):
             raise ValueError("tile_index must contain nonnegative integers (not bool).")
 
         self.tiles = tiles.copy()
@@ -93,7 +93,7 @@ class NpyImageDataset(BaseImageDataset):
                 NpyManifest(
                     file_index=file_index,
                     check_exists=check_exists,
-                    tile_indices=tuple(int(i) for i in indices),
+                    tile_indices=tuple(int(i) for i in tile_indices),
                     channel_names=tuple(self.channel_names),
                     mask_names=tuple(self.mask_names),
                 ),
@@ -104,6 +104,31 @@ class NpyImageDataset(BaseImageDataset):
             transforms=transforms,
             input_transforms=input_transforms,
             target_transforms=target_transforms,
+        )
+
+    @property
+    def indices(self) -> list[int]:
+        """Root parquet row positions in dataset order (returned as a copy)."""
+        return list(self._indices)
+
+    def subset(self, indices: NpyIndices) -> "NpyImageDataset":
+        """Select positions relative to this dataset, preserving their order.
+
+        Rereads the descriptor/parquet, but never loads arrays. State and caches
+        are independent; channel/transform lists are copied, transform objects
+        themselves are shared. The root parquet must remain unchanged.
+        """
+        relative = validate_npy_indices(indices, len(self))
+        return type(self)(
+            self.root_dir,
+            indices=[self._indices[i] for i in relative],
+            input_channel_keys=list(self.input_channel_keys),
+            target_channel_keys=list(self.target_channel_keys),
+            transforms=list(self.transforms),
+            input_transforms=list(self.input_transforms),
+            target_transforms=list(self.target_transforms),
+            cache_capacity=self.file_state.cache_capacity,
+            check_exists=self.manifest.check_exists,
         )
 
     def _read_names(self, key: str) -> list[str]:
@@ -162,8 +187,9 @@ class NpyImageDataset(BaseImageDataset):
         """
         return {
             "root_dir": str(self.root_dir),
-            "input_channel_keys": self.input_channel_keys,
-            "target_channel_keys": self.target_channel_keys,
+            "indices": self.indices,
+            "input_channel_keys": list(self.input_channel_keys),
+            "target_channel_keys": list(self.target_channel_keys),
             "cache_capacity": self.file_state.cache_capacity,
         }
 

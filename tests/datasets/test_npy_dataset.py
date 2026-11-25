@@ -147,7 +147,7 @@ def test_lazy_mappings_and_lru(export_root):
 def test_config_relocation_and_named_parquet_index(export_root, tmp_path):
     table_path = export_root / "tiles.parquet"
     pd.read_parquet(table_path).set_index("tile_id").to_parquet(table_path)
-    ds = make_dataset(export_root, cache_capacity=-1)
+    ds = make_dataset(export_root, cache_capacity=-1, indices=[3, 0])
     config_path = tmp_path / "config.json"
     ds.to_json_config(config_path)
     config = json.loads(config_path.read_text())
@@ -156,8 +156,93 @@ def test_config_relocation_and_named_parquet_index(export_root, tmp_path):
     config["root_dir"] = str(relocated)
     restored = NpyImageDataset.from_config(config)
     torch.testing.assert_close(restored[0][0], ds[0][0])
+    assert config["indices"] == restored.indices == ds.indices == [3, 0]
+    assert restored.get_metadata(0).name == "1:0"
     assert all(p.is_relative_to(relocated) for p in restored.file_index.iloc[0])
     assert restored.file_state.cache_capacity == -1
+
+
+def test_nested_subset_state_transforms_masks_and_plotting(export_root):
+    from virtual_stain_flow.evaluation.visualization import plot_dataset_grid
+
+    ds = make_dataset(
+        export_root, transforms=[AffineTransform(offset=2)],
+        input_transforms=[AffineTransform(scale=3)],
+        target_transforms=[AffineTransform(offset=7)], cache_capacity=1,
+    )
+    ds[0]  # A populated parent state/cache must not be inherited.
+    with patch("numpy.load", wraps=np.load) as load:
+        child = ds.subset(np.array([3, 0, 2]))
+        nested = child.subset(pd.Index([2, 0]))
+        assert load.call_count == 0
+    assert type(nested) is type(ds)
+    assert child.indices == [3, 0, 2]
+    assert nested.indices == [2, 3]
+    assert nested.tiles.index.tolist() == ["1:2", "1:0"]
+    for name in ("index_state", "file_state", "manifest"):
+        assert getattr(nested, name) is not getattr(ds, name)
+    assert nested.index_state.last is None
+    assert nested.file_state._cache == {}
+    assert nested.file_state._cache is not ds.file_state._cache
+    assert nested.file_state.cache_capacity == 1
+    for name in ("input_channel_keys", "target_channel_keys", "transforms",
+                 "input_transforms", "target_transforms"):
+        assert getattr(nested, name) == getattr(ds, name)
+        assert getattr(nested, name) is not getattr(ds, name)
+    assert nested.transforms[0] is ds.transforms[0]
+    raw_x, raw_y = ds.get_raw_item(2)
+    x, y = nested[0]
+    torch.testing.assert_close(x, torch.from_numpy((raw_x + 2) * 3))
+    torch.testing.assert_close(y, torch.from_numpy(raw_y + 9))
+    np.testing.assert_array_equal(nested.get_masks(1), ds.get_masks(3))
+    assert nested.get_metadata().name == "1:2"
+    assert ds.index_state.last == 2
+    figure = plot_dataset_grid(nested, [1, 0], show_plot=False, panel_width=0.5)
+    np.testing.assert_array_equal(figure.axes[2].images[0].get_array(), x[0].numpy())
+    nested.input_channel_keys.append("OrigDNA")
+    nested.transforms.clear()
+    positions = nested.indices
+    positions.clear()
+    assert ds.input_channel_keys == ["OrigBrightfield"]
+    assert len(ds.transforms) == 1
+    assert nested.indices == [2, 3]
+
+
+@pytest.mark.parametrize("indices", [[3, 0], np.array([3, 0]), pd.Index([3, 0]), range(3, -1, -3)])
+def test_constructor_positional_indices_before_path_mapping(export_root, indices):
+    path = export_root / "tiles.parquet"
+    table = pd.read_parquet(path)
+    table.loc[1, "images_path"] = "../unused.npy"
+    table.to_parquet(path, index=False)
+    with patch("numpy.load", side_effect=AssertionError("must remain lazy")):
+        ds = make_dataset(export_root, indices=indices)
+    assert ds.indices == [3, 0]
+    assert ds.tiles.index.tolist() == ["1:0", "0:2"]
+    assert ds.manifest.tile_indices == (0, 2)
+
+
+@pytest.mark.parametrize("indices,message", [
+    ([], "non-empty"), ([True], "not bool"), ([np.bool_(False)], "not bool"),
+    ([-1], "range"), ([4], "range"), ([1.5], "integers"),
+    (["1"], "integers"), ([1, 1], "duplicates"),
+    (np.array([[0]]), "one-dimensional"), (1, "sequence"),
+])
+def test_invalid_positional_subsets(export_root, indices, message):
+    ds = make_dataset(export_root)
+    for factory in (lambda: make_dataset(export_root, indices=indices), lambda: ds.subset(indices)):
+        with pytest.raises(ValueError, match=message):
+            factory()
+    with pytest.raises(ValueError, match="range"):
+        ds.subset([0]).subset([1])
+
+
+def test_subset_validates_full_root_tile_identity(export_root):
+    path = export_root / "tiles.parquet"
+    table = pd.read_parquet(path)
+    table.loc[2, "tile_id"] = table.loc[3, "tile_id"]
+    table.to_parquet(path, index=False)
+    with pytest.raises(ValueError, match="tile_id"):
+        make_dataset(export_root, indices=[0])
 
 
 @pytest.mark.parametrize("column,value,message", [

@@ -3,12 +3,52 @@
 from dataclasses import dataclass
 from numbers import Integral
 from pathlib import Path
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
 
 from .manifest import DatasetManifest, FileState
+
+
+NpyIndices = Union[Sequence[int], np.ndarray, pd.Index]
+
+
+def read_npy_tiles(root_dir: Path) -> pd.DataFrame:
+    """Read metadata and validate root tile identity before any selection."""
+    tiles = pd.read_parquet(root_dir / "tiles.parquet")
+    if not tiles.columns.is_unique:
+        raise ValueError("tiles.parquet must have unique column names.")
+    if "tile_id" in tiles.columns:
+        tiles = tiles.set_index("tile_id")
+    if tiles.index.name != "tile_id":
+        raise ValueError("tiles.parquet must contain a tile_id column or named index.")
+    if (tiles.empty or tiles.index.hasnans or not tiles.index.is_unique
+            or any(isinstance(i, str) and not i.strip() for i in tiles.index)):
+        raise ValueError("tile_id must be nonempty, non-null and unique in a non-empty table.")
+    return tiles
+
+
+def validate_npy_indices(indices: Optional[NpyIndices], length: int) -> list[int]:
+    """Normalize a nonempty, unique selection of positional integer indices."""
+    if indices is None:
+        return list(range(length))
+    if isinstance(indices, np.ndarray):
+        if indices.ndim != 1:
+            raise ValueError("indices must be one-dimensional.")
+    elif not isinstance(indices, (Sequence, pd.Index)) or isinstance(indices, (str, bytes)):
+        raise ValueError("indices must be a one-dimensional integer sequence.")
+    values = list(indices)
+    if not values:
+        raise ValueError("indices must be non-empty.")
+    if any(isinstance(i, (bool, np.bool_)) or not isinstance(i, Integral) for i in values):
+        raise ValueError("indices must contain integers (not bool).")
+    result = [int(i) for i in values]
+    if any(i < 0 or i >= length for i in result):
+        raise ValueError(f"indices must be in range [0, {length}).")
+    if len(set(result)) != len(result):
+        raise ValueError("indices must not contain duplicates.")
+    return result
 
 
 @dataclass(frozen=True)
